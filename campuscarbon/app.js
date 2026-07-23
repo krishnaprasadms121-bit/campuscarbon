@@ -152,6 +152,30 @@ const PLAN = {
       "Log it in Track Growth.",
     ],
   },
+  // Rough illustrative cost split of the total per-unit cost, for the PDF's
+  // itemized table. Shares sum to 1.0 per activity. These are indicative
+  // splits, not vendor quotes — flagged as such wherever they're shown.
+  itemBreakdown: {
+    trees: [
+      { item: "Sapling", share: 40 / 150, perUnit: true },
+      { item: "Tree guard / fencing", share: 70 / 150, perUnit: true },
+      { item: "Support stake", share: 30 / 150, perUnit: true },
+      { item: "Compost / manure (per tree)", share: 10 / 150, perUnit: true },
+    ],
+    solar: [
+      { item: "Solar panels", share: 0.5, perUnit: false },
+      { item: "Inverter", share: 0.2, perUnit: false },
+      { item: "Mounting structure", share: 0.15, perUnit: false },
+      { item: "Wiring & safety gear", share: 0.1, perUnit: false },
+      { item: "Installation labour", share: 0.05, perUnit: false },
+    ],
+    biogas: [
+      { item: "Digester construction", share: 0.6, perUnit: false },
+      { item: "Gas piping & fittings", share: 0.15, perUnit: false },
+      { item: "Valve / burner unit", share: 0.1, perUnit: false },
+      { item: "Installation labour", share: 0.15, perUnit: false },
+    ],
+  },
 };
 
 const CALC = {
@@ -199,7 +223,7 @@ const state = {
   trackEditingId: null,
   trackPendingPhoto: null,
   trackPhotoRemoved: false,
-  chat: { messages: [] },
+  chat: { messages: [], pendingPlanActivity: null },
 };
 
 /* ---------------------------------------------------------------------- */
@@ -1157,6 +1181,96 @@ function buildKnowledgeBase() {
       answer: OFFICIAL_LINKS.map((l) => `${l.label}: ${l.url}`).join("\n"),
     },
     {
+      id: "offset-vs-compliance",
+      keywords: ["offset", "allowance", "voluntary", "compliance market", "obligated"],
+      title: "What's the difference between the compliance and voluntary market?",
+      answer: "The compliance market involves entities legally obligated to cut emissions or buy allowances/credits to meet a mandated cap. The voluntary market is where any organisation — including a university — buys or earns credits without being legally required to, usually for sustainability goals. CCTS in India includes both: a compliance mechanism for large obligated industries, and an offset mechanism open to voluntary, non-obligated participants like institutions.",
+    },
+    {
+      id: "additionality",
+      keywords: ["additionality", "additional", "baseline", "businessasusual"],
+      title: "What does 'additionality' mean?",
+      answer: "A project is 'additional' if the emission reduction genuinely wouldn't have happened without the carbon credit incentive — trees that would have been planted anyway don't qualify. Additionality is one of the most closely scrutinised requirements during ACVA verification, since crediting non-additional activity undermines the integrity of the whole system.",
+    },
+    {
+      id: "mrv",
+      keywords: ["mrv", "measurement", "monitoring", "reporting"],
+      title: "What is MRV?",
+      answer: "MRV stands for Measurement, Reporting, and Verification — measuring your actual emission reduction, reporting it accurately, and having an independent body (an ACVA, in India's system) verify those numbers before any credit is issued. It's the backbone of what makes a carbon credit trustworthy rather than just a claim.",
+    },
+    {
+      id: "permanence",
+      keywords: ["permanence", "reversal", "reversed", "reverse", "expire", "disappear"],
+      title: "What is 'permanence' in carbon projects?",
+      answer: "Permanence refers to how long a carbon reduction actually lasts. A planted forest cut down five years later 'reverses' the credited reduction — which is exactly why projects are monitored over their full committed period with repeat verification visits, not just checked once at the start.",
+    },
+    {
+      id: "leakage",
+      keywords: ["leakage", "leak", "shifted", "displacement"],
+      title: "What is carbon leakage?",
+      answer: "Leakage happens when an activity reduces emissions in one place but simply shifts them elsewhere — for example, protecting one forest patch while deforestation just moves to the next one over. Good project design accounts for this so the net global reduction is real, not just relocated.",
+    },
+    {
+      id: "co-benefits",
+      keywords: ["cobenefit", "cobenefits", "sidebenefit"],
+      title: "What are co-benefits?",
+      answer: "Co-benefits are the extra positive effects a carbon project has beyond the CO2 reduction itself — cleaner local air, better soil health, biodiversity, local jobs, or reduced flooding from tree cover. These don't earn extra credits, but institutions often highlight them in sustainability reporting and grant applications.",
+    },
+    {
+      id: "project-types",
+      keywords: ["kinds", "categories", "wind", "methane", "mangrove", "soilcarbon", "efficiency"],
+      title: "What kinds of projects can earn carbon credits, beyond trees, solar, and biogas?",
+      answer: "Common categories include wind energy, energy-efficiency retrofits, methane capture from landfills or livestock, mangrove and blue-carbon restoration, and soil carbon farming. Each has its own methodology for calculating credits — this site currently supports planning for trees, solar, and biogas specifically since those are the most common institutional-scale projects.",
+    },
+    {
+      id: "rec-vs-ccc",
+      keywords: ["rec", "renewableenergycertificate"],
+      title: "How is a carbon credit different from a Renewable Energy Certificate (REC)?",
+      answer: "A REC certifies that one unit of electricity came from a renewable source — it's about the electricity's origin, not directly about emissions avoided. A Carbon Credit Certificate (CCC) instead quantifies actual greenhouse gas reduction in tonnes of CO2e. They're related but issued under different schemes with different rules, so check which one actually applies to your project type.",
+    },
+    {
+      id: "one-credit-meaning",
+      keywords: ["onetonne", "equivalent", "meaning", "represents"],
+      title: "What does '1 credit = 1 tonne of CO2' actually mean?",
+      answer: "One carbon credit represents one metric tonne of carbon dioxide, or its equivalent in another greenhouse gas like methane, that was kept out of the atmosphere or actively removed, verified against a measurable baseline. It's a standard unit so credits from very different project types — trees, solar, biogas — can be compared and traded on the same footing.",
+    },
+    {
+      id: "timeline",
+      keywords: ["timeline", "duration", "years", "howlong"],
+      title: "How long does the whole process take, from start to certificate?",
+      answer: "There's no fixed universal timeline — it depends on project type, the ACVA's schedule, and how ready your documentation is. As a rough shape: registration and approval typically take a few months, the project itself runs for years (especially tree projects), and the first verification visit usually happens well after implementation begins rather than immediately. Thorough record-keeping speeds this up more than anything else.",
+    },
+    {
+      id: "green-credit-vs-ccts",
+      keywords: ["greencreditprogramme", "gcp", "difference"],
+      title: "What's the difference between the Green Credit Programme and CCTS?",
+      answer: "The Green Credit Programme is specifically geared toward environmental actions like tree plantation, administered by the Ministry of Environment, Forest and Climate Change. CCTS is the broader Carbon Credit Trading Scheme covering multiple sectors, administered under the Bureau of Energy Efficiency via the Indian Carbon Market portal. Tree-planting institutions can often choose whichever pathway fits better — worth comparing both before committing.",
+    },
+    {
+      id: "documents-needed",
+      keywords: ["documents", "papers", "documentation", "paperwork"],
+      title: "What documents do I need to get started?",
+      answer: "Typically: proof of land ownership or long-term usage rights, a Project Design Document describing the activity and expected reduction, institutional registration details, and — once implementation begins — dated photos and activity logs. Exact requirements vary by project type and registry, so confirm the current checklist on the official ICM portal before applying.",
+    },
+    {
+      id: "who-can-apply",
+      keywords: ["eligible", "eligibility", "whocanapply", "qualify"],
+      title: "Can any institution apply, or only certain ones?",
+      answer: "Both individuals and institutions — including universities — can register as 'non-obligated entities' for the voluntary offset mechanism, as long as they can demonstrate land or site rights and a genuine, additional emission-reduction activity. There's no special exemption or restriction for educational institutions specifically; the same registration process applies.",
+    },
+    {
+      id: "price-factors",
+      keywords: ["worth", "pricefactors", "howmuchisacredit"],
+      title: "What determines the price of a carbon credit?",
+      answer: "Prices aren't fixed — they depend on project type, verification quality, buyer demand, and whether it's sold through the compliance market or a voluntary deal. Rather than quote a single figure that changes over time, treat the Calculator tab's price field as an adjustable assumption you should update once you have a real buyer quote.",
+    },
+    {
+      id: "institution-vs-individual",
+      keywords: ["university", "farmer", "individual", "smallholder"],
+      title: "Does it work differently for a university compared to a farmer or individual?",
+      answer: "The underlying registration and verification process is the same regardless of who applies. In practice, institutions often have an easier time than individual smallholders because they can typically register and trade directly, rather than needing to pool credits through an aggregator or Farmer Producer Organisation — a real structural advantage for a college or university running its own project.",
+    },
+    {
       id: "care-trees",
       keywords: ["water", "watering", "sapling", "guard", "weed", "mulch"],
       title: "How do I take care of trees?",
@@ -1254,6 +1368,18 @@ function matchKnowledgeBase(q) {
 }
 
 /* ---------- Plan answer text (chat) + PDF, reusing the Plan tab's own data ---------- */
+function planQtyPhrase(activity, qty) {
+  if (activity === "trees") return `${qty} tree${qty === 1 ? "" : "s"}`;
+  if (activity === "biogas") return `${qty} biogas unit${qty === 1 ? "" : "s"}`;
+  return `${qty} kW of solar`;
+}
+
+function planAskPhrase(activity) {
+  if (activity === "trees") return "how many trees would you like to plan for? Just reply with a number.";
+  if (activity === "biogas") return "how many biogas units would you like to plan for? Just reply with a number.";
+  return "what solar capacity (in kW) would you like to plan for? Just reply with a number.";
+}
+
 function planChatAnswer(activity, qty, usedDefault) {
   const unit = PLAN.unit[activity];
   const sqm = qty * PLAN.sqmPerUnit[activity];
@@ -1265,7 +1391,7 @@ function planChatAnswer(activity, qty, usedDefault) {
 
   let text = "";
   if (usedDefault) text += `I've used a default of ${qty} ${unit}${qty === 1 ? "" : "s"} since no number was mentioned — tell me the real number any time for a more accurate plan.\n\n`;
-  text += `Here's a full plan for ${qty} ${activityLabel(activity).toLowerCase()} (${unit}${qty === 1 ? "" : "s"}):\n\n`;
+  text += `Here's a full plan for ${planQtyPhrase(activity, qty)}:\n\n`;
   text += `${land.label}: ${land.value}\nApprox. total setup cost: ${inr(cost)}\n\n`;
   text += `What you'll need:\n${materials}\n\n`;
   text += `How to organise it:\n${flow.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n`;
@@ -1308,13 +1434,13 @@ function generatePlanPDF(activity, qty) {
     });
   }
 
-  const unit = PLAN.unit[activity];
   const sqm = qty * PLAN.sqmPerUnit[activity];
   const land = landInfo(activity, sqm);
-  const cost = qty * PLAN.defaultCost[activity];
+  const totalCost = qty * PLAN.defaultCost[activity];
   const materials = PLAN.materials[activity].replace(/\{qty\}/g, String(qty || 0));
   const flow = PLAN.flow[activity];
   const care = CARE[activity];
+  const breakdown = PLAN.itemBreakdown[activity];
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
@@ -1325,12 +1451,54 @@ function generatePlanPDF(activity, qty) {
   doc.setFontSize(10);
   doc.setTextColor(130);
   doc.text(`Generated ${new Date().toLocaleDateString("en-IN")}`, marginX, y);
-  y += 12;
+  y += 8;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(7, 33, 28);
+  doc.text(`${activityLabel(activity)} — ${planQtyPhrase(activity, qty)}`, marginX, y);
+  y += 6;
 
-  heading(`${activityLabel(activity)} — ${qty} ${unit}${qty === 1 ? "" : "s"}`);
-  paragraph(`${land.label}: ${land.value}`, { bold: true });
-  paragraph(`Approx. total setup cost: ${inr(cost)}`, { bold: true });
+  // Summary table
+  doc.autoTable({
+    startY: y,
+    theme: "grid",
+    styles: { fontSize: 10, cellPadding: 4 },
+    headStyles: { fillColor: [7, 33, 28], textColor: 255 },
+    head: [["Summary", ""]],
+    body: [
+      ["Quantity", planQtyPhrase(activity, qty)],
+      [land.label, land.value],
+      ["Approx. total setup cost", inr(totalCost)],
+    ],
+    margin: { left: marginX, right: marginX },
+  });
+  y = doc.lastAutoTable.finalY + 12;
+
+  // Itemized cost breakdown table
+  ensureSpace(20);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.setTextColor(7, 33, 28);
+  doc.text("Itemized cost breakdown (approx.)", marginX, y);
   y += 4;
+
+  const rows = breakdown.map((b) => {
+    const itemCost = totalCost * b.share;
+    const qtyLabel = b.perUnit ? String(qty) : "1 (system)";
+    return [b.item, qtyLabel, inr(itemCost)];
+  });
+  doc.autoTable({
+    startY: y + 2,
+    theme: "grid",
+    styles: { fontSize: 10, cellPadding: 4 },
+    headStyles: { fillColor: [29, 158, 130], textColor: 255 },
+    head: [["Item", "Qty", "Approx. cost"]],
+    body: rows,
+    foot: [["", "Total", inr(totalCost)]],
+    footStyles: { fillColor: [241, 226, 196], textColor: [7, 33, 28], fontStyle: "bold" },
+    margin: { left: marginX, right: marginX },
+  });
+  y = doc.lastAutoTable.finalY + 10;
 
   heading("What you'll need");
   paragraph(materials);
@@ -1346,7 +1514,7 @@ function generatePlanPDF(activity, qty) {
   y += 4;
 
   heading("Disclaimer");
-  paragraph("These are rough 2026 India planning estimates generated by CampusCarbon's built-in calculator — actual land, material, and cost requirements vary by vendor, species, and site. Get a real site assessment and vendor quotes before finalising a budget or submitting for verification.");
+  paragraph("These are rough 2026 India planning estimates generated by CampusCarbon's built-in calculator, including the itemized cost split above — actual land, material, and cost requirements vary by vendor, species, and site. Get a real site assessment and vendor quotes before finalising a budget or submitting for verification.");
 
   doc.save(`campuscarbon-plan-${activity}-${qty}.pdf`);
 }
@@ -1485,14 +1653,37 @@ async function sendChatMessage(text) {
 
   const q = trimmed.toLowerCase();
   const activity = extractActivity(q);
+  const qtyInMessage = extractQuantity(q);
+
+  // If we previously asked "how many?" and this message is just a bare
+  // number (no new activity mentioned), complete that pending plan.
+  if (state.chat.pendingPlanActivity && qtyInMessage !== null && !activity) {
+    const pendingActivity = state.chat.pendingPlanActivity;
+    state.chat.pendingPlanActivity = null;
+    state.chat.messages.push({
+      role: "assistant",
+      text: planChatAnswer(pendingActivity, qtyInMessage, false),
+      pdf: { activity: pendingActivity, qty: qtyInMessage },
+    });
+    renderChatMessages();
+    return;
+  }
 
   // Plan requests and cost questions stay fully local — they use this site's
   // own calculator, so the numbers are exact rather than AI-estimated.
   if (isPlanRequest(q, activity)) {
-    let qty = extractQuantity(q);
-    const usedDefault = qty === null;
-    if (usedDefault) qty = DEFAULT_PLAN_QTY[activity];
-    state.chat.messages.push({ role: "assistant", text: planChatAnswer(activity, qty, usedDefault), pdf: { activity, qty } });
+    if (qtyInMessage === null) {
+      // Don't assume a number — ask for the real one.
+      state.chat.pendingPlanActivity = activity;
+      state.chat.messages.push({
+        role: "assistant",
+        text: `Sure — ${planAskPhrase(activity)}`,
+      });
+      renderChatMessages();
+      return;
+    }
+    state.chat.pendingPlanActivity = null;
+    state.chat.messages.push({ role: "assistant", text: planChatAnswer(activity, qtyInMessage, false), pdf: { activity, qty: qtyInMessage } });
     renderChatMessages();
     return;
   }
