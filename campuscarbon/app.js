@@ -224,6 +224,10 @@ const state = {
   trackPendingPhoto: null,
   trackPhotoRemoved: false,
   chat: { messages: [], pendingPlanActivity: null },
+  analysis: {
+    species: { photo: null, result: null, loading: false, error: null },
+    problem: { photo: null, result: null, loading: false, error: null },
+  },
 };
 
 /* ---------------------------------------------------------------------- */
@@ -457,6 +461,7 @@ const APP_TABS = [
   { id: "track", label: "Track Growth", icon: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>' },
   { id: "apply", label: "Apply", icon: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h6"/>' },
   { id: "plan", label: "Plan a Project", icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
+  { id: "analysis", label: "Analysis", icon: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>' },
   { id: "help", label: "Help Assistant", icon: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>' },
 ];
 
@@ -495,6 +500,7 @@ function renderAppContent() {
   else if (state.tab === "track") { el.innerHTML = trackHTML(); bindTrackEvents(); }
   else if (state.tab === "apply") { el.innerHTML = applyHTML(); }
   else if (state.tab === "plan") { el.innerHTML = planHTML(); bindPlanEvents(); updatePlanResults(); }
+  else if (state.tab === "analysis") { el.innerHTML = analysisHTML(); bindAnalysisEvents(); }
   else if (state.tab === "help") { el.innerHTML = helpHTML(); bindHelpEvents(); }
   if (window.scrollTo) window.scrollTo({ top: document.querySelector(".app-subnav").offsetHeight, behavior: "auto" });
 }
@@ -1527,6 +1533,139 @@ const HELP_SUGGESTIONS = [
   "Plan a 50kW solar project",
   "How do I sell my credits?",
 ];
+
+/* ============================================================
+   ANALYSIS TAB — Afforestation Analysis (species ID) and
+   Problem Finder (health diagnosis), both using the camera/
+   upload + Gemini vision backend.
+   ============================================================ */
+function analysisSectionHTML(mode, opts) {
+  const st = state.analysis[mode];
+  return `
+    <div class="panel">
+      <h3 style="font-size:16px;margin-bottom:4px">${esc(opts.title)}</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:16px">${esc(opts.desc)}</p>
+
+      <div class="field">
+        <label>Take a photo or upload one</label>
+        <input type="file" id="an-${mode}-photo" accept="image/*" capture="environment">
+      </div>
+
+      <div id="an-${mode}-preview" style="margin-top:12px">${analysisPreviewHTML(st.photo)}</div>
+
+      <button class="btn-solid mt-16" id="an-${mode}-btn" ${st.photo ? "" : "disabled"} style="${st.photo ? "" : "opacity:.5;cursor:not-allowed"}">
+        ${st.loading ? "Analysing..." : opts.btnLabel}
+      </button>
+
+      <div id="an-${mode}-result">${analysisResultHTML(mode, st)}</div>
+
+      <div class="note-banner">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
+        <span>${esc(opts.disclaimer)}</span>
+      </div>
+    </div>`;
+}
+
+function analysisPreviewHTML(photo) {
+  if (!photo) return "";
+  return `<img src="${photo}" style="width:160px;height:160px;object-fit:cover;border-radius:12px;border:1px solid var(--line)">`;
+}
+
+function analysisResultHTML(mode, st) {
+  if (st.error) {
+    return `<div class="note-banner" style="background:#FBF0E8;color:#8C4A22;margin-top:16px">${esc(st.error)}</div>`;
+  }
+  if (!st.result) return "";
+  return `<div class="panel" style="background:var(--paper);margin-top:16px;box-shadow:none">
+    <div style="font-size:13.5px;line-height:1.65;white-space:pre-wrap">${esc(st.result)}</div>
+  </div>`;
+}
+
+function analysisHTML() {
+  return `
+    <div class="app-header">
+      <h2>Analysis</h2>
+      <p>Point a camera at a tree — identify what it is, or check if something looks wrong. Powered by AI vision; always confirm anything important with a person on the ground.</p>
+    </div>
+
+    ${analysisSectionHTML("species", {
+      title: "Afforestation analysis — what tree is this?",
+      desc: "Upload or capture a photo of a tree or sapling to get its likely species.",
+      btnLabel: "Identify this tree",
+      disclaimer: "Species identification from a single photo is approximate, especially for young saplings. For official records, confirm with a local horticulturist or your ACVA verifier.",
+    })}
+
+    ${analysisSectionHTML("problem", {
+      title: "Problem finder — what's wrong with this tree?",
+      desc: "Upload or capture a photo showing the leaves, trunk, or affected area to get a likely diagnosis.",
+      btnLabel: "Check for problems",
+      disclaimer: "This is a rough first look, not a diagnosis. Many issues look similar in one photo — if it looks serious, get an in-person check from a horticulturist or your ACVA verifier before acting.",
+    })}`;
+}
+
+async function analyzeImage(mode) {
+  const st = state.analysis[mode];
+  if (!st.photo) return;
+  st.loading = true;
+  st.error = null;
+  st.result = null;
+  refreshAnalysisSection(mode);
+
+  try {
+    const [meta, base64] = st.photo.split(",");
+    const mimeMatch = meta.match(/data:(.*);base64/);
+    const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
+
+    const res = await fetch("/.netlify/functions/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ imageBase64: base64, mimeType, mode }),
+    });
+    if (!res.ok) throw new Error("Analysis backend unavailable (status " + res.status + ")");
+    const data = await res.json();
+    if (!data.text) throw new Error("Empty response");
+    st.result = data.text;
+  } catch (err) {
+    st.error = "Couldn't analyse this photo right now — the AI backend may not be connected yet, or there's a connection issue. Try again in a moment.";
+  } finally {
+    st.loading = false;
+    refreshAnalysisSection(mode);
+  }
+}
+
+function refreshAnalysisSection(mode) {
+  const btn = document.getElementById(`an-${mode}-btn`);
+  const st = state.analysis[mode];
+  if (btn) {
+    btn.disabled = st.loading || !st.photo;
+    btn.style.opacity = btn.disabled ? ".5" : "";
+    btn.style.cursor = btn.disabled ? "not-allowed" : "";
+    btn.textContent = st.loading ? "Analysing..." : (mode === "species" ? "Identify this tree" : "Check for problems");
+  }
+  const resultEl = document.getElementById(`an-${mode}-result`);
+  if (resultEl) resultEl.innerHTML = analysisResultHTML(mode, st);
+}
+
+function bindAnalysisSection(mode) {
+  const input = document.getElementById(`an-${mode}-photo`);
+  input.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    compressImageFile(file, (dataUrl) => {
+      state.analysis[mode].photo = dataUrl;
+      state.analysis[mode].result = null;
+      state.analysis[mode].error = null;
+      document.getElementById(`an-${mode}-preview`).innerHTML = analysisPreviewHTML(dataUrl);
+      refreshAnalysisSection(mode);
+    });
+  });
+  document.getElementById(`an-${mode}-btn`).addEventListener("click", () => analyzeImage(mode));
+}
+
+function bindAnalysisEvents() {
+  bindAnalysisSection("species");
+  bindAnalysisSection("problem");
+}
 
 function helpHTML() {
   return `
