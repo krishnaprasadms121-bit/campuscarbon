@@ -1,52 +1,81 @@
-CAMPUSCARBON — MODEL FIX (IMPORTANT)
+CAMPUSCARBON — FINAL NETLIFY VERSION
 =====================================
 
-WHAT WAS WRONG
---------------
-Google has RETIRED the Gemini 2.5 models for new API keys.
-Any request to them now returns "404 no longer available to new users".
-
-This broke TWO things, not one:
-  1. The new Plant Scanner (you saw the red error)
-  2. Your Help Assistant chat — it was already broken and you
-     did not notice, because it silently fell back to canned
-     answers instead of showing an error.
+This is everything from 14 August, all in one upload.
+Upload this ONCE. Do not deploy again for small changes.
 
 
-WHAT IS FIXED
--------------
-netlify/functions/plant-scan.js
-  Now tries these models in order:
-    1. gemini-3.5-flash-lite
-    2. gemini-3.1-flash-lite
-    3. gemini-flash-latest
+WHAT IS INCLUDED
+----------------
+1. Scan Plant tab
+     - 4 photo slots: whole plant, leaf top, leaf underside, bark/flower
+     - Camera AND Gallery buttons on every slot
+     - Location button (now visible - it used to be white on white)
+     - 3 diagnostic questions the photo cannot answer
+     - Confidence shown honestly on every result
+     - No pesticide dosages, by design
 
-netlify/functions/chat.js
-  Changed from gemini-2.5-flash-lite to gemini-3.1-flash-lite
+2. Updated Gemini models
+     plant-scan.js: gemini-3.5-flash-lite -> gemini-3.1-flash-lite
+                    -> gemini-flash-latest  (tries each in order)
+     chat.js:       gemini-3.1-flash-lite
+
+     The old gemini-2.5 models were retired by Google and returned
+     404 to new API keys. This broke the scanner AND the Help
+     Assistant (the Assistant failed silently, using canned replies).
+
+3. Location improvements
+     20 second timeout instead of 8
+     Shows your actual coordinates when it works
+     Explains WHY it failed instead of a vague message
 
 
-WHY THREE MODELS INSTEAD OF ONE
+YOUR API KEY
+------------
+You created a new Gemini key today. Netlify still has the OLD one.
+The old key was exposed in a screenshot, so it should be replaced.
+
+  Netlify > Site configuration > Environment variables
+  > GEMINI_API_KEY > Options > Edit
+  Paste the new key. Save.
+
+Then trigger one deploy so it takes effect.
+Also delete the old key at aistudio.google.com/apikey if not done.
+
+
+IMPORTANT: PROTECT YOUR CREDITS
 -------------------------------
-If Google retires one again, the code moves down the list
-automatically instead of breaking.
+Billing period: 14 August to 13 September.
+Personal plan gives 1,000 credits. Each deploy costs 15.
+That is about 66 deploys this month - plenty, IF you batch changes.
 
-"gemini-flash-latest" is a special name. Google always keeps it
-pointing at a working model. It is the safety net, so your site
-should never fully break from a model shutdown again.
+To go back to the free plan, CANCEL BEFORE 13 SEPTEMBER.
+Set a phone reminder for 11 September.
+
+On the free plan you get 300 credits = only 20 deploys per month.
+So from September: collect several changes, then deploy once.
 
 
-AFTER YOU UPLOAD — TEST BOTH
+FILES IN THIS ZIP
+-----------------
+  index.html
+  app.js
+  style.css
+  netlify.toml
+  netlify/functions/chat.js
+  netlify/functions/plant-scan.js
+
+Your repo also has netlify/functions/analyze.js.
+Nothing calls it. Leave it alone - uploading does not delete it.
+
+
+AFTER IT IS LIVE - TEST BOTH
 ----------------------------
-1. Scan Plant tab -> add one photo -> Scan plant
+1. Scan Plant  -> one photo -> should identify the plant
 2. Help Assistant -> ask "what is the capital of Japan?"
-   It should politely refuse and steer back to carbon credits.
-   If it gives a generic carbon answer ignoring your question,
-   it is still on the fallback and something is wrong.
+   It should politely refuse and return to carbon credits.
+   A generic carbon answer that ignores your question means
+   the AI is not connected.
 
-
-ABOUT COST
-----------
-Flash-Lite models are the cheapest tier. You are still on the
-free plan. If you never add a credit card to Google AI Studio,
-you cannot be charged. When the daily free limit runs out, the
-app shows an error until the next day.
+Then scan 10 plants you can identify with certainty and count
+how many it gets right. That number is your real accuracy.
