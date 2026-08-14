@@ -1601,13 +1601,23 @@ function scanHTML() {
         ${SCAN_SLOTS.map(function (s, i) {
           const has = scanState.photos[s.key];
           return `
-          <label class="scan-slot${has ? " filled" : ""}" for="scan-file-${s.key}">
-            ${has ? `<img src="${has.preview}" alt="">` : `
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>`}
+          <div class="scan-slot${has ? " filled" : ""}">
+            ${has ? `<img src="${has.preview}" alt="">` : ""}
             <b>${s.label}${i === 0 ? " *" : ""}</b>
-            <span>${has ? "Tap to replace" : s.hint}</span>
-            <input type="file" accept="image/*" id="scan-file-${s.key}" data-scan-slot="${s.key}" hidden>
-          </label>`;
+            <span>${has ? "Change photo" : s.hint}</span>
+            <div class="scan-actions">
+              <label for="scan-cam-${s.key}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>
+                Camera
+              </label>
+              <label for="scan-gal-${s.key}">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+                Gallery
+              </label>
+            </div>
+            <input type="file" accept="image/*" capture="environment" id="scan-cam-${s.key}" data-scan-slot="${s.key}" hidden>
+            <input type="file" accept="image/*" id="scan-gal-${s.key}" data-scan-slot="${s.key}" hidden>
+          </div>`;
         }).join("")}
       </div>
     </div>
