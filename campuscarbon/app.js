@@ -1626,7 +1626,7 @@ function scanHTML() {
       <h3 style="margin:0 0 4px;font-size:15px">2. Where are you?</h3>
       <p style="font-size:13px;color:var(--ink-soft);margin:0 0 14px">Location rules out most of the world's plants instantly. This is the single biggest accuracy gain.</p>
       <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <button class="btn-outline" id="scan-loc">
+        <button class="scan-locbtn" id="scan-loc">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
           Use my location
         </button>
@@ -1860,14 +1860,22 @@ function bindScanEvents() {
             lat: pos.coords.latitude.toFixed(4),
             lng: pos.coords.longitude.toFixed(4),
           };
-          scanState.locationStatus = "Location added ✓";
+          scanState.locationStatus =
+            "Location added \u2713  (" + scanState.location.lat + ", " + scanState.location.lng + ")";
           renderAppContent();
         },
-        function () {
-          scanState.locationStatus = "Location not available — that's fine, carry on.";
+        function (err) {
+          if (err && err.code === 1) {
+            scanState.locationStatus =
+              "Location blocked. Tap the lock icon in the address bar to allow it, or skip \u2014 the scan still works.";
+          } else if (err && err.code === 3) {
+            scanState.locationStatus = "Location timed out. Tap again, or skip \u2014 the scan still works.";
+          } else {
+            scanState.locationStatus = "Couldn't get location. Skip it \u2014 the scan still works.";
+          }
           renderAppContent();
         },
-        { timeout: 8000 }
+        { timeout: 20000, maximumAge: 300000, enableHighAccuracy: false }
       );
     });
   }

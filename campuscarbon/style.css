@@ -478,3 +478,22 @@ img { max-width: 100%; display: block; }
   margin-bottom: 4px;
 }
 .scan-block p { margin: 0; font-size: 13.5px; line-height: 1.65; }
+
+/* Location button — the site's .btn-outline is white-on-dark and
+   disappears on a white panel, so the scan tab needs its own. */
+.scan-locbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  border: 1.5px solid var(--forest-900);
+  background: #fff;
+  color: var(--forest-900);
+  font-weight: 700;
+  font-size: 14px;
+  transition: background .15s ease, transform .15s ease;
+}
+.scan-locbtn:hover { background: #f2f7f5; transform: translateY(-1px); }
+.scan-locbtn:active { transform: translateY(0); }
