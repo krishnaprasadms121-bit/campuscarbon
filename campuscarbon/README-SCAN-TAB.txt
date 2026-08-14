@@ -1,4 +1,4 @@
-CAMPUSCARBON — FINAL NETLIFY VERSION
+CAMPUSCARBON — FINAL + TAMIL/HINDI NAMES
 =====================================
 
 This is everything from 14 August, all in one upload.
@@ -79,3 +79,22 @@ AFTER IT IS LIVE - TEST BOTH
 
 Then scan 10 plants you can identify with certainty and count
 how many it gets right. That number is your real accuracy.
+
+
+UPDATE — TAMIL AND HINDI NAMES
+------------------------------
+The result now shows separate rows:
+  Tamil name   வேம்பு (Vembu)
+  Hindi name   नीम (Neem)
+  Other names  Telugu, Malayalam, Sanskrit etc.
+
+Native script first, English spelling in brackets.
+
+IMPORTANT: the AI is instructed NEVER to invent a regional name.
+Many ornamental and imported plants genuinely have no Tamil or
+Hindi name. In that case the row shows a greyed-out
+"No established Tamil name" instead of a guess.
+
+Regional names are the LEAST reliable part of any result.
+Names vary by district, and one Tamil name often covers several
+different plants. The botanical name is the reliable one.

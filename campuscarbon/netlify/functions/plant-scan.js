@@ -18,6 +18,13 @@ HOW TO IDENTIFY
 - If several species look alike in the photo, list the alternatives instead of picking one at random.
 - Set confidence honestly. "high" only when the photo clearly shows diagnostic features. If the photo is blurry, distant, or shows only a generic green leaf, say "low".
 
+REGIONAL NAMES
+- For tamilName, give the name actually used in Tamil Nadu, written in Tamil script followed by English transliteration in brackets. Example: வேம்பு (Vembu)
+- For hindiName, give the Hindi name in Devanagari script followed by transliteration. Example: नीम (Neem)
+- If the plant has no established name in that language, or you are not confident of it, write exactly "Not commonly named in Tamil" or "Not commonly named in Hindi". NEVER invent or guess a regional name — a wrong local name is worse than none, because the user cannot check it.
+- Many exotic and ornamental species genuinely have no Tamil or Hindi name. Say so rather than translating the English name.
+- Put any other regional names (Telugu, Malayalam, Kannada, Sanskrit, Bengali) in otherLocalNames, or leave it empty.
+
 HOW TO DIAGNOSE
 - Only report a problem you can actually SEE evidence of in the photo. Never invent symptoms.
 - Use the user's answers. Spreading to nearby plants suggests something infectious. Not spreading suggests nutrient, water, or soil issues. Sudden onset suggests shock or pests; slow onset suggests deficiency.
@@ -37,7 +44,9 @@ Reply with ONLY a JSON object. No markdown, no backticks, no text before or afte
   "identification": {
     "commonName": "",
     "botanicalName": "",
-    "localNames": "",
+    "tamilName": "",
+    "hindiName": "",
+    "otherLocalNames": "",
     "family": "",
     "confidence": "high | medium | low",
     "alternatives": [{ "name": "", "howToTellApart": "" }]

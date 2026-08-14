@@ -1679,6 +1679,14 @@ function confidencePill(level) {
   return `<span class="scan-pill" style="background:${c}15;color:${c};border-color:${c}40">${word[level] || "Confidence unknown"}</span>`;
 }
 
+function localNameRow(lang, val) {
+  if (!val) return "";
+  const none = /not commonly named/i.test(val);
+  return `<div class="scan-row"><span>${lang} name</span><b${
+    none ? ' style="font-weight:400;color:var(--ink-soft)"' : ""
+  }>${esc(none ? "No established " + lang + " name" : val)}</b></div>`;
+}
+
 function scanResultHTML(r) {
   if (r.isPlant === false) {
     return `<div class="panel"><h3 style="margin:0 0 8px;font-size:15px">That doesn't look like a plant</h3>
@@ -1706,7 +1714,9 @@ function scanResultHTML(r) {
         </div>
         ${confidencePill(id.confidence)}
       </div>
-      ${row("Local names", id.localNames)}
+      ${localNameRow("Tamil", id.tamilName)}
+      ${localNameRow("Hindi", id.hindiName)}
+      ${row("Other names", id.otherLocalNames)}
       ${row("Family", id.family)}
       ${ab.description ? `<p style="font-size:13.5px;line-height:1.65;margin:14px 0 0">${esc(ab.description)}</p>` : ""}
     </div>
