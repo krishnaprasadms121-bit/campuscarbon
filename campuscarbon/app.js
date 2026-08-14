@@ -1794,7 +1794,7 @@ function scanReadImage(file) {
         reject(new Error("Could not open that image."));
       };
       img.onload = function () {
-        const max = 1024;
+        const max = 800;
         let w = img.width;
         let h = img.height;
         if (w > max || h > max) {
@@ -1806,7 +1806,7 @@ function scanReadImage(file) {
         canvas.width = w;
         canvas.height = h;
         canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.78);
         resolve({ preview: dataUrl, data: dataUrl.split(",")[1], mimeType: "image/jpeg" });
       };
       img.src = reader.result;
@@ -1923,10 +1923,9 @@ function runScan() {
     .then(function (out) {
       scanState.loading = false;
       if (!out.ok) {
-        scanState.error =
-          (out.body && out.body.error) === "GEMINI_API_KEY is not configured on this site yet."
-            ? "The scanner isn't connected yet — the API key is missing on the server."
-            : "Scan failed. The free daily limit may be used up, or the photo may be unclear. Try again.";
+        const detail = out.body && out.body.detail ? String(out.body.detail) : "";
+        const msg = out.body && out.body.error ? String(out.body.error) : "Scan failed";
+        scanState.error = detail ? msg + " — " + detail : msg;
       } else {
         scanState.result = out.body;
       }

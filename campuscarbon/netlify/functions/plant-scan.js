@@ -125,56 +125,58 @@ exports.handler = async function (event) {
     });
   });
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
+  const models = [GEMINI_MODEL, "gemini-2.5-flash-lite"];
+  let lastError = "";
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{ role: "user", parts: parts }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: 2000,
-          responseMimeType: "application/json",
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-    });
+  for (let i = 0; i < models.length; i++) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${models[i]}:generateContent?key=${apiKey}`;
 
-    if (!res.ok) {
-      const errText = await res.text();
-      return {
-        statusCode: res.status,
-        body: JSON.stringify({ error: "Gemini API error", detail: errText }),
-      };
-    }
-
-    const data = await res.json();
-    const candidate = (data.candidates || [])[0];
-    const partsOut = candidate && candidate.content && candidate.content.parts ? candidate.content.parts : [];
-    const text = partsOut.map((p) => p.text || "").join("").trim();
-
-    if (!text) {
-      const reason = candidate && candidate.finishReason ? candidate.finishReason : "unknown";
-      return { statusCode: 502, body: JSON.stringify({ error: "Empty response from model.", reason }) };
-    }
-
-    const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
-
-    let result;
     try {
-      result = JSON.parse(cleaned);
-    } catch (e) {
-      return {
-        statusCode: 502,
-        body: JSON.stringify({ error: "Could not read the reply. Try a clearer photo.", raw: cleaned.slice(0, 300) }),
-      };
-    }
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          contents: [{ role: "user", parts: parts }],
+          generationConfig: {
+            temperature: 0.2,
+            maxOutputTokens: 1400,
+            responseMimeType: "application/json",
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      });
 
-    return { statusCode: 200, body: JSON.stringify(result) };
-  } catch (err) {
-    return { statusCode: 500, body: JSON.stringify({ error: "Request failed", detail: String(err) }) };
+      if (!res.ok) {
+        const errText = await res.text();
+        lastError = `[${models[i]}] HTTP ${res.status}: ${errText.slice(0, 400)}`;
+        continue;
+      }
+
+      const data = await res.json();
+      const candidate = (data.candidates || [])[0];
+      const partsOut = candidate && candidate.content && candidate.content.parts ? candidate.content.parts : [];
+      const text = partsOut.map((p) => p.text || "").join("").trim();
+
+      if (!text) {
+        const reason = candidate && candidate.finishReason ? candidate.finishReason : "unknown";
+        lastError = `[${models[i]}] Empty reply, finishReason: ${reason}`;
+        continue;
+      }
+
+      const cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+
+      try {
+        const result = JSON.parse(cleaned);
+        return { statusCode: 200, body: JSON.stringify(result) };
+      } catch (e) {
+        lastError = `[${models[i]}] Reply was not valid JSON: ${cleaned.slice(0, 300)}`;
+        continue;
+      }
+    } catch (err) {
+      lastError = `[${models[i]}] Network error: ${String(err).slice(0, 300)}`;
+    }
   }
+
+  return { statusCode: 502, body: JSON.stringify({ error: "Scan failed", detail: lastError }) };
 };

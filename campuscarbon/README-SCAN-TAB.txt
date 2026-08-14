@@ -1,84 +1,47 @@
-CAMPUSCARBON — SCAN PLANT TAB
-==============================
+CAMPUSCARBON — PLANT SCANNER (FIX UPDATE)
+==========================================
 
-WHAT IS NEW
------------
-A sixth tab called "Scan Plant" has been added to your site.
-Everything from your original site is untouched and still works.
+WHAT CHANGED IN THIS UPDATE
+---------------------------
+1. The error message now shows the REAL reason a scan failed,
+   instead of a vague "Scan failed" message. This is temporary —
+   it is there so we can find the problem.
 
-New file added:
-  netlify/functions/plant-scan.js
+2. Photos are now shrunk to 800px instead of 1024px, and
+   compressed slightly more. Smaller upload = faster = less
+   likely to hit Netlify's 10 second time limit.
 
-Files changed:
-  app.js      (tab button added, tab wired up, scan code added at the end)
-  style.css   (styling for the scan tab added at the end)
-  index.html  (Scan Plant link added to the top menu)
+3. If gemini-2.5-flash fails for any reason, the function now
+   automatically retries with gemini-2.5-flash-lite. So a busy
+   model or a rate limit no longer breaks the scan.
 
-Files NOT changed:
-  netlify/functions/chat.js
-  netlify.toml
-
-
-IMPORTANT: THE API KEY
-----------------------
-The scanner uses the SAME key your Help Assistant already uses.
-It is called GEMINI_API_KEY in your Netlify settings.
-You do NOT need a new key. You do NOT need to change anything.
-
-If the scanner says "the API key is missing on the server", go to:
-  Netlify > your site > Site configuration > Environment variables
-and check that GEMINI_API_KEY is there.
+4. Reply length reduced from 2000 to 1400 tokens, which makes
+   the answer come back faster.
 
 
-WHICH MODEL IT USES
--------------------
-plant-scan.js uses "gemini-2.5-flash" (better at reading leaves)
-chat.js uses "gemini-2.5-flash-lite" (cheaper, fine for text)
+WHAT TO DO
+----------
+Upload these files to GitHub the same way as last time:
+  github.com/krishnaprasadms121-bit/campuscarbon/tree/main/campuscarbon
 
-If you ever want the scanner to be cheaper, open
-netlify/functions/plant-scan.js and change line 5 from:
-    const GEMINI_MODEL = "gemini-2.5-flash";
-to:
-    const GEMINI_MODEL = "gemini-2.5-flash-lite";
-It will be roughly 5x cheaper but noticeably worse at spotting disease.
+Remember: drag the "netlify" FOLDER on its own first, then drag
+the 5 loose files. Dragging all 6 together does not work.
 
 
-COST
-----
-You are on the free tier. Google gives about 1,000 requests per day
-free. If you never add a credit card to Google AI Studio, you CANNOT
-be charged. When the free limit runs out, the app simply shows an
-error until the next day.
+IF IT STILL FAILS
+-----------------
+The red message under the Scan button will now show the actual
+error. Send that whole message. Common ones:
+
+"HTTP 429"        -> free daily limit used up, wait until tomorrow
+"HTTP 400"        -> something wrong in the request
+"HTTP 404"        -> model name not available on your key
+"finishReason: SAFETY" -> the model blocked the reply
+"Network error"   -> Netlify timed out (took over 10 seconds)
 
 
-HOW ACCURACY WAS IMPROVED
--------------------------
-1. Four photo slots instead of one (whole plant, leaf top,
-   leaf underside, bark/flower)
-2. GPS location button - rules out most of the world's species
-3. Three questions the photo cannot answer (how long, watering,
-   whether it is spreading)
-4. Current month is sent automatically for seasonal diseases
-5. Confidence level is always shown on screen
-6. Photos are shrunk to 1024px in the browser before upload,
-   so scans are fast and cheap
-
-
-SAFETY BUILT IN
----------------
-The AI is instructed to NEVER give pesticide dosages, dilution
-ratios, or spray schedules. It names the product type only and
-always tells the user to confirm with their local agriculture
-extension officer or Krishi Vigyan Kendra.
-
-Do not remove this. Wrong chemical advice can destroy a crop or
-harm the person spraying it.
-
-
-BEFORE YOU SHOW ANYONE
-----------------------
-Photograph 10 plants you can identify with certainty. Run them
-through the scanner. Count how many it gets right.
-
-That number is your real accuracy. If it is poor on local trees,
-you need to know before a judge or a farmer finds out.
+TRY THIS FIRST
+--------------
+Scan with only ONE photo instead of four. If one photo works and
+four fails, it is the 10 second timeout, and we will fix it by
+sending fewer photos.
