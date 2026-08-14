@@ -9,7 +9,7 @@ Stay strictly on topic: carbon credits, CCTS, the Indian Carbon Market (ICM) por
 
 Be concise, accurate, and practical, with India-specific context. If you're not certain of a specific number, rule, or current policy detail, say so rather than inventing one. Mention the site's own Calculator, Apply, and Plan tabs when they'd genuinely help. Never claim to be a government body or an official verification agency — you are a helpful assistant, not a substitute for an ACVA or official guidance.`;
 
-const GEMINI_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_MODEL = "gemini-3.1-flash-lite";
 
 exports.handler = async function (event) {
   if (event.httpMethod !== "POST") {

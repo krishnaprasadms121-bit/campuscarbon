@@ -1596,7 +1596,7 @@ function scanHTML() {
 
     <div class="panel">
       <h3 style="margin:0 0 4px;font-size:15px">1. Add photos</h3>
-      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 16px">The first one is required. The rest are optional but make the answer noticeably better.</p>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 16px">Tap a box to take a photo or pick one from your gallery. The first is required; the rest are optional but make the answer noticeably better.</p>
       <div class="scan-slots">
         ${SCAN_SLOTS.map(function (s, i) {
           const has = scanState.photos[s.key];
@@ -1606,7 +1606,7 @@ function scanHTML() {
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>`}
             <b>${s.label}${i === 0 ? " *" : ""}</b>
             <span>${has ? "Tap to replace" : s.hint}</span>
-            <input type="file" accept="image/*" capture="environment" id="scan-file-${s.key}" data-scan-slot="${s.key}" hidden>
+            <input type="file" accept="image/*" id="scan-file-${s.key}" data-scan-slot="${s.key}" hidden>
           </label>`;
         }).join("")}
       </div>

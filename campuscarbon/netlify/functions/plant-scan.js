@@ -2,7 +2,14 @@
    Runs on Netlify's server, never in the browser, so the API key stays secret.
    Uses the same GEMINI_API_KEY environment variable as chat.js. */
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+// Model list. Tried in order — if one is retired or busy, the next is used.
+// "gemini-flash-latest" is an alias Google keeps pointing at a live model,
+// so it acts as a permanent safety net against future shutdowns.
+const GEMINI_MODELS = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-latest",
+];
 
 const SYSTEM_PROMPT = `You are a botanist and plant pathologist assisting users of CampusCarbon, an Indian sustainability platform. You will receive one or more photographs of a plant or tree, and possibly the user's location and answers to a few questions.
 
@@ -125,7 +132,7 @@ exports.handler = async function (event) {
     });
   });
 
-  const models = [GEMINI_MODEL, "gemini-2.5-flash-lite"];
+  const models = GEMINI_MODELS;
   let lastError = "";
 
   for (let i = 0; i < models.length; i++) {

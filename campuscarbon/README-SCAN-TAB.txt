@@ -1,47 +1,52 @@
-CAMPUSCARBON — PLANT SCANNER (FIX UPDATE)
-==========================================
+CAMPUSCARBON — MODEL FIX (IMPORTANT)
+=====================================
 
-WHAT CHANGED IN THIS UPDATE
----------------------------
-1. The error message now shows the REAL reason a scan failed,
-   instead of a vague "Scan failed" message. This is temporary —
-   it is there so we can find the problem.
-
-2. Photos are now shrunk to 800px instead of 1024px, and
-   compressed slightly more. Smaller upload = faster = less
-   likely to hit Netlify's 10 second time limit.
-
-3. If gemini-2.5-flash fails for any reason, the function now
-   automatically retries with gemini-2.5-flash-lite. So a busy
-   model or a rate limit no longer breaks the scan.
-
-4. Reply length reduced from 2000 to 1400 tokens, which makes
-   the answer come back faster.
-
-
-WHAT TO DO
-----------
-Upload these files to GitHub the same way as last time:
-  github.com/krishnaprasadms121-bit/campuscarbon/tree/main/campuscarbon
-
-Remember: drag the "netlify" FOLDER on its own first, then drag
-the 5 loose files. Dragging all 6 together does not work.
-
-
-IF IT STILL FAILS
------------------
-The red message under the Scan button will now show the actual
-error. Send that whole message. Common ones:
-
-"HTTP 429"        -> free daily limit used up, wait until tomorrow
-"HTTP 400"        -> something wrong in the request
-"HTTP 404"        -> model name not available on your key
-"finishReason: SAFETY" -> the model blocked the reply
-"Network error"   -> Netlify timed out (took over 10 seconds)
-
-
-TRY THIS FIRST
+WHAT WAS WRONG
 --------------
-Scan with only ONE photo instead of four. If one photo works and
-four fails, it is the 10 second timeout, and we will fix it by
-sending fewer photos.
+Google has RETIRED the Gemini 2.5 models for new API keys.
+Any request to them now returns "404 no longer available to new users".
+
+This broke TWO things, not one:
+  1. The new Plant Scanner (you saw the red error)
+  2. Your Help Assistant chat — it was already broken and you
+     did not notice, because it silently fell back to canned
+     answers instead of showing an error.
+
+
+WHAT IS FIXED
+-------------
+netlify/functions/plant-scan.js
+  Now tries these models in order:
+    1. gemini-3.5-flash-lite
+    2. gemini-3.1-flash-lite
+    3. gemini-flash-latest
+
+netlify/functions/chat.js
+  Changed from gemini-2.5-flash-lite to gemini-3.1-flash-lite
+
+
+WHY THREE MODELS INSTEAD OF ONE
+-------------------------------
+If Google retires one again, the code moves down the list
+automatically instead of breaking.
+
+"gemini-flash-latest" is a special name. Google always keeps it
+pointing at a working model. It is the safety net, so your site
+should never fully break from a model shutdown again.
+
+
+AFTER YOU UPLOAD — TEST BOTH
+----------------------------
+1. Scan Plant tab -> add one photo -> Scan plant
+2. Help Assistant -> ask "what is the capital of Japan?"
+   It should politely refuse and steer back to carbon credits.
+   If it gives a generic carbon answer ignoring your question,
+   it is still on the fallback and something is wrong.
+
+
+ABOUT COST
+----------
+Flash-Lite models are the cheapest tier. You are still on the
+free plan. If you never add a credit card to Google AI Studio,
+you cannot be charged. When the daily free limit runs out, the
+app shows an error until the next day.
