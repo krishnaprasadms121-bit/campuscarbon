@@ -152,30 +152,6 @@ const PLAN = {
       "Log it in Track Growth.",
     ],
   },
-  // Rough illustrative cost split of the total per-unit cost, for the PDF's
-  // itemized table. Shares sum to 1.0 per activity. These are indicative
-  // splits, not vendor quotes — flagged as such wherever they're shown.
-  itemBreakdown: {
-    trees: [
-      { item: "Sapling", share: 40 / 150, perUnit: true },
-      { item: "Tree guard / fencing", share: 70 / 150, perUnit: true },
-      { item: "Support stake", share: 30 / 150, perUnit: true },
-      { item: "Compost / manure (per tree)", share: 10 / 150, perUnit: true },
-    ],
-    solar: [
-      { item: "Solar panels", share: 0.5, perUnit: false },
-      { item: "Inverter", share: 0.2, perUnit: false },
-      { item: "Mounting structure", share: 0.15, perUnit: false },
-      { item: "Wiring & safety gear", share: 0.1, perUnit: false },
-      { item: "Installation labour", share: 0.05, perUnit: false },
-    ],
-    biogas: [
-      { item: "Digester construction", share: 0.6, perUnit: false },
-      { item: "Gas piping & fittings", share: 0.15, perUnit: false },
-      { item: "Valve / burner unit", share: 0.1, perUnit: false },
-      { item: "Installation labour", share: 0.15, perUnit: false },
-    ],
-  },
 };
 
 const CALC = {
@@ -223,11 +199,7 @@ const state = {
   trackEditingId: null,
   trackPendingPhoto: null,
   trackPhotoRemoved: false,
-  chat: { messages: [], pendingPlanActivity: null },
-  analysis: {
-    species: { photo: null, result: null, loading: false, error: null },
-    problem: { photo: null, result: null, loading: false, error: null },
-  },
+  chat: { messages: [] },
 };
 
 /* ---------------------------------------------------------------------- */
@@ -461,8 +433,8 @@ const APP_TABS = [
   { id: "track", label: "Track Growth", icon: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>' },
   { id: "apply", label: "Apply", icon: '<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12h6M9 16h6"/>' },
   { id: "plan", label: "Plan a Project", icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
-  { id: "analysis", label: "Analysis", icon: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>' },
   { id: "help", label: "Help Assistant", icon: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>' },
+  { id: "scan", label: "Scan Plant", icon: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>' },
 ];
 
 function appShellHTML() {
@@ -500,8 +472,8 @@ function renderAppContent() {
   else if (state.tab === "track") { el.innerHTML = trackHTML(); bindTrackEvents(); }
   else if (state.tab === "apply") { el.innerHTML = applyHTML(); }
   else if (state.tab === "plan") { el.innerHTML = planHTML(); bindPlanEvents(); updatePlanResults(); }
-  else if (state.tab === "analysis") { el.innerHTML = analysisHTML(); bindAnalysisEvents(); }
   else if (state.tab === "help") { el.innerHTML = helpHTML(); bindHelpEvents(); }
+  else if (state.tab === "scan") { el.innerHTML = scanHTML(); bindScanEvents(); }
   if (window.scrollTo) window.scrollTo({ top: document.querySelector(".app-subnav").offsetHeight, behavior: "auto" });
 }
 
@@ -1187,96 +1159,6 @@ function buildKnowledgeBase() {
       answer: OFFICIAL_LINKS.map((l) => `${l.label}: ${l.url}`).join("\n"),
     },
     {
-      id: "offset-vs-compliance",
-      keywords: ["offset", "allowance", "voluntary", "compliance market", "obligated"],
-      title: "What's the difference between the compliance and voluntary market?",
-      answer: "The compliance market involves entities legally obligated to cut emissions or buy allowances/credits to meet a mandated cap. The voluntary market is where any organisation — including a university — buys or earns credits without being legally required to, usually for sustainability goals. CCTS in India includes both: a compliance mechanism for large obligated industries, and an offset mechanism open to voluntary, non-obligated participants like institutions.",
-    },
-    {
-      id: "additionality",
-      keywords: ["additionality", "additional", "baseline", "businessasusual"],
-      title: "What does 'additionality' mean?",
-      answer: "A project is 'additional' if the emission reduction genuinely wouldn't have happened without the carbon credit incentive — trees that would have been planted anyway don't qualify. Additionality is one of the most closely scrutinised requirements during ACVA verification, since crediting non-additional activity undermines the integrity of the whole system.",
-    },
-    {
-      id: "mrv",
-      keywords: ["mrv", "measurement", "monitoring", "reporting"],
-      title: "What is MRV?",
-      answer: "MRV stands for Measurement, Reporting, and Verification — measuring your actual emission reduction, reporting it accurately, and having an independent body (an ACVA, in India's system) verify those numbers before any credit is issued. It's the backbone of what makes a carbon credit trustworthy rather than just a claim.",
-    },
-    {
-      id: "permanence",
-      keywords: ["permanence", "reversal", "reversed", "reverse", "expire", "disappear"],
-      title: "What is 'permanence' in carbon projects?",
-      answer: "Permanence refers to how long a carbon reduction actually lasts. A planted forest cut down five years later 'reverses' the credited reduction — which is exactly why projects are monitored over their full committed period with repeat verification visits, not just checked once at the start.",
-    },
-    {
-      id: "leakage",
-      keywords: ["leakage", "leak", "shifted", "displacement"],
-      title: "What is carbon leakage?",
-      answer: "Leakage happens when an activity reduces emissions in one place but simply shifts them elsewhere — for example, protecting one forest patch while deforestation just moves to the next one over. Good project design accounts for this so the net global reduction is real, not just relocated.",
-    },
-    {
-      id: "co-benefits",
-      keywords: ["cobenefit", "cobenefits", "sidebenefit"],
-      title: "What are co-benefits?",
-      answer: "Co-benefits are the extra positive effects a carbon project has beyond the CO2 reduction itself — cleaner local air, better soil health, biodiversity, local jobs, or reduced flooding from tree cover. These don't earn extra credits, but institutions often highlight them in sustainability reporting and grant applications.",
-    },
-    {
-      id: "project-types",
-      keywords: ["kinds", "categories", "wind", "methane", "mangrove", "soilcarbon", "efficiency"],
-      title: "What kinds of projects can earn carbon credits, beyond trees, solar, and biogas?",
-      answer: "Common categories include wind energy, energy-efficiency retrofits, methane capture from landfills or livestock, mangrove and blue-carbon restoration, and soil carbon farming. Each has its own methodology for calculating credits — this site currently supports planning for trees, solar, and biogas specifically since those are the most common institutional-scale projects.",
-    },
-    {
-      id: "rec-vs-ccc",
-      keywords: ["rec", "renewableenergycertificate"],
-      title: "How is a carbon credit different from a Renewable Energy Certificate (REC)?",
-      answer: "A REC certifies that one unit of electricity came from a renewable source — it's about the electricity's origin, not directly about emissions avoided. A Carbon Credit Certificate (CCC) instead quantifies actual greenhouse gas reduction in tonnes of CO2e. They're related but issued under different schemes with different rules, so check which one actually applies to your project type.",
-    },
-    {
-      id: "one-credit-meaning",
-      keywords: ["onetonne", "equivalent", "meaning", "represents"],
-      title: "What does '1 credit = 1 tonne of CO2' actually mean?",
-      answer: "One carbon credit represents one metric tonne of carbon dioxide, or its equivalent in another greenhouse gas like methane, that was kept out of the atmosphere or actively removed, verified against a measurable baseline. It's a standard unit so credits from very different project types — trees, solar, biogas — can be compared and traded on the same footing.",
-    },
-    {
-      id: "timeline",
-      keywords: ["timeline", "duration", "years", "howlong"],
-      title: "How long does the whole process take, from start to certificate?",
-      answer: "There's no fixed universal timeline — it depends on project type, the ACVA's schedule, and how ready your documentation is. As a rough shape: registration and approval typically take a few months, the project itself runs for years (especially tree projects), and the first verification visit usually happens well after implementation begins rather than immediately. Thorough record-keeping speeds this up more than anything else.",
-    },
-    {
-      id: "green-credit-vs-ccts",
-      keywords: ["greencreditprogramme", "gcp", "difference"],
-      title: "What's the difference between the Green Credit Programme and CCTS?",
-      answer: "The Green Credit Programme is specifically geared toward environmental actions like tree plantation, administered by the Ministry of Environment, Forest and Climate Change. CCTS is the broader Carbon Credit Trading Scheme covering multiple sectors, administered under the Bureau of Energy Efficiency via the Indian Carbon Market portal. Tree-planting institutions can often choose whichever pathway fits better — worth comparing both before committing.",
-    },
-    {
-      id: "documents-needed",
-      keywords: ["documents", "papers", "documentation", "paperwork"],
-      title: "What documents do I need to get started?",
-      answer: "Typically: proof of land ownership or long-term usage rights, a Project Design Document describing the activity and expected reduction, institutional registration details, and — once implementation begins — dated photos and activity logs. Exact requirements vary by project type and registry, so confirm the current checklist on the official ICM portal before applying.",
-    },
-    {
-      id: "who-can-apply",
-      keywords: ["eligible", "eligibility", "whocanapply", "qualify"],
-      title: "Can any institution apply, or only certain ones?",
-      answer: "Both individuals and institutions — including universities — can register as 'non-obligated entities' for the voluntary offset mechanism, as long as they can demonstrate land or site rights and a genuine, additional emission-reduction activity. There's no special exemption or restriction for educational institutions specifically; the same registration process applies.",
-    },
-    {
-      id: "price-factors",
-      keywords: ["worth", "pricefactors", "howmuchisacredit"],
-      title: "What determines the price of a carbon credit?",
-      answer: "Prices aren't fixed — they depend on project type, verification quality, buyer demand, and whether it's sold through the compliance market or a voluntary deal. Rather than quote a single figure that changes over time, treat the Calculator tab's price field as an adjustable assumption you should update once you have a real buyer quote.",
-    },
-    {
-      id: "institution-vs-individual",
-      keywords: ["university", "farmer", "individual", "smallholder"],
-      title: "Does it work differently for a university compared to a farmer or individual?",
-      answer: "The underlying registration and verification process is the same regardless of who applies. In practice, institutions often have an easier time than individual smallholders because they can typically register and trade directly, rather than needing to pool credits through an aggregator or Farmer Producer Organisation — a real structural advantage for a college or university running its own project.",
-    },
-    {
       id: "care-trees",
       keywords: ["water", "watering", "sapling", "guard", "weed", "mulch"],
       title: "How do I take care of trees?",
@@ -1374,18 +1256,6 @@ function matchKnowledgeBase(q) {
 }
 
 /* ---------- Plan answer text (chat) + PDF, reusing the Plan tab's own data ---------- */
-function planQtyPhrase(activity, qty) {
-  if (activity === "trees") return `${qty} tree${qty === 1 ? "" : "s"}`;
-  if (activity === "biogas") return `${qty} biogas unit${qty === 1 ? "" : "s"}`;
-  return `${qty} kW of solar`;
-}
-
-function planAskPhrase(activity) {
-  if (activity === "trees") return "how many trees would you like to plan for? Just reply with a number.";
-  if (activity === "biogas") return "how many biogas units would you like to plan for? Just reply with a number.";
-  return "what solar capacity (in kW) would you like to plan for? Just reply with a number.";
-}
-
 function planChatAnswer(activity, qty, usedDefault) {
   const unit = PLAN.unit[activity];
   const sqm = qty * PLAN.sqmPerUnit[activity];
@@ -1397,7 +1267,7 @@ function planChatAnswer(activity, qty, usedDefault) {
 
   let text = "";
   if (usedDefault) text += `I've used a default of ${qty} ${unit}${qty === 1 ? "" : "s"} since no number was mentioned — tell me the real number any time for a more accurate plan.\n\n`;
-  text += `Here's a full plan for ${planQtyPhrase(activity, qty)}:\n\n`;
+  text += `Here's a full plan for ${qty} ${activityLabel(activity).toLowerCase()} (${unit}${qty === 1 ? "" : "s"}):\n\n`;
   text += `${land.label}: ${land.value}\nApprox. total setup cost: ${inr(cost)}\n\n`;
   text += `What you'll need:\n${materials}\n\n`;
   text += `How to organise it:\n${flow.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n`;
@@ -1440,13 +1310,13 @@ function generatePlanPDF(activity, qty) {
     });
   }
 
+  const unit = PLAN.unit[activity];
   const sqm = qty * PLAN.sqmPerUnit[activity];
   const land = landInfo(activity, sqm);
-  const totalCost = qty * PLAN.defaultCost[activity];
+  const cost = qty * PLAN.defaultCost[activity];
   const materials = PLAN.materials[activity].replace(/\{qty\}/g, String(qty || 0));
   const flow = PLAN.flow[activity];
   const care = CARE[activity];
-  const breakdown = PLAN.itemBreakdown[activity];
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(18);
@@ -1457,54 +1327,12 @@ function generatePlanPDF(activity, qty) {
   doc.setFontSize(10);
   doc.setTextColor(130);
   doc.text(`Generated ${new Date().toLocaleDateString("en-IN")}`, marginX, y);
-  y += 8;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.setTextColor(7, 33, 28);
-  doc.text(`${activityLabel(activity)} — ${planQtyPhrase(activity, qty)}`, marginX, y);
-  y += 6;
+  y += 12;
 
-  // Summary table
-  doc.autoTable({
-    startY: y,
-    theme: "grid",
-    styles: { fontSize: 10, cellPadding: 4 },
-    headStyles: { fillColor: [7, 33, 28], textColor: 255 },
-    head: [["Summary", ""]],
-    body: [
-      ["Quantity", planQtyPhrase(activity, qty)],
-      [land.label, land.value],
-      ["Approx. total setup cost", inr(totalCost)],
-    ],
-    margin: { left: marginX, right: marginX },
-  });
-  y = doc.lastAutoTable.finalY + 12;
-
-  // Itemized cost breakdown table
-  ensureSpace(20);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(13);
-  doc.setTextColor(7, 33, 28);
-  doc.text("Itemized cost breakdown (approx.)", marginX, y);
+  heading(`${activityLabel(activity)} — ${qty} ${unit}${qty === 1 ? "" : "s"}`);
+  paragraph(`${land.label}: ${land.value}`, { bold: true });
+  paragraph(`Approx. total setup cost: ${inr(cost)}`, { bold: true });
   y += 4;
-
-  const rows = breakdown.map((b) => {
-    const itemCost = totalCost * b.share;
-    const qtyLabel = b.perUnit ? String(qty) : "1 (system)";
-    return [b.item, qtyLabel, inr(itemCost)];
-  });
-  doc.autoTable({
-    startY: y + 2,
-    theme: "grid",
-    styles: { fontSize: 10, cellPadding: 4 },
-    headStyles: { fillColor: [29, 158, 130], textColor: 255 },
-    head: [["Item", "Qty", "Approx. cost"]],
-    body: rows,
-    foot: [["", "Total", inr(totalCost)]],
-    footStyles: { fillColor: [241, 226, 196], textColor: [7, 33, 28], fontStyle: "bold" },
-    margin: { left: marginX, right: marginX },
-  });
-  y = doc.lastAutoTable.finalY + 10;
 
   heading("What you'll need");
   paragraph(materials);
@@ -1520,7 +1348,7 @@ function generatePlanPDF(activity, qty) {
   y += 4;
 
   heading("Disclaimer");
-  paragraph("These are rough 2026 India planning estimates generated by CampusCarbon's built-in calculator, including the itemized cost split above — actual land, material, and cost requirements vary by vendor, species, and site. Get a real site assessment and vendor quotes before finalising a budget or submitting for verification.");
+  paragraph("These are rough 2026 India planning estimates generated by CampusCarbon's built-in calculator — actual land, material, and cost requirements vary by vendor, species, and site. Get a real site assessment and vendor quotes before finalising a budget or submitting for verification.");
 
   doc.save(`campuscarbon-plan-${activity}-${qty}.pdf`);
 }
@@ -1533,139 +1361,6 @@ const HELP_SUGGESTIONS = [
   "Plan a 50kW solar project",
   "How do I sell my credits?",
 ];
-
-/* ============================================================
-   ANALYSIS TAB — Afforestation Analysis (species ID) and
-   Problem Finder (health diagnosis), both using the camera/
-   upload + Gemini vision backend.
-   ============================================================ */
-function analysisSectionHTML(mode, opts) {
-  const st = state.analysis[mode];
-  return `
-    <div class="panel">
-      <h3 style="font-size:16px;margin-bottom:4px">${esc(opts.title)}</h3>
-      <p style="font-size:13px;color:var(--ink-soft);margin-bottom:16px">${esc(opts.desc)}</p>
-
-      <div class="field">
-        <label>Take a photo or upload one</label>
-        <input type="file" id="an-${mode}-photo" accept="image/*" capture="environment">
-      </div>
-
-      <div id="an-${mode}-preview" style="margin-top:12px">${analysisPreviewHTML(st.photo)}</div>
-
-      <button class="btn-solid mt-16" id="an-${mode}-btn" ${st.photo ? "" : "disabled"} style="${st.photo ? "" : "opacity:.5;cursor:not-allowed"}">
-        ${st.loading ? "Analysing..." : opts.btnLabel}
-      </button>
-
-      <div id="an-${mode}-result">${analysisResultHTML(mode, st)}</div>
-
-      <div class="note-banner">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><path d="M12 9v4M12 17h.01"/></svg>
-        <span>${esc(opts.disclaimer)}</span>
-      </div>
-    </div>`;
-}
-
-function analysisPreviewHTML(photo) {
-  if (!photo) return "";
-  return `<img src="${photo}" style="width:160px;height:160px;object-fit:cover;border-radius:12px;border:1px solid var(--line)">`;
-}
-
-function analysisResultHTML(mode, st) {
-  if (st.error) {
-    return `<div class="note-banner" style="background:#FBF0E8;color:#8C4A22;margin-top:16px">${esc(st.error)}</div>`;
-  }
-  if (!st.result) return "";
-  return `<div class="panel" style="background:var(--paper);margin-top:16px;box-shadow:none">
-    <div style="font-size:13.5px;line-height:1.65;white-space:pre-wrap">${esc(st.result)}</div>
-  </div>`;
-}
-
-function analysisHTML() {
-  return `
-    <div class="app-header">
-      <h2>Analysis</h2>
-      <p>Point a camera at a tree — identify what it is, or check if something looks wrong. Powered by AI vision; always confirm anything important with a person on the ground.</p>
-    </div>
-
-    ${analysisSectionHTML("species", {
-      title: "Afforestation analysis — what tree is this?",
-      desc: "Upload or capture a photo of a tree or sapling to get its likely species.",
-      btnLabel: "Identify this tree",
-      disclaimer: "Species identification from a single photo is approximate, especially for young saplings. For official records, confirm with a local horticulturist or your ACVA verifier.",
-    })}
-
-    ${analysisSectionHTML("problem", {
-      title: "Problem finder — what's wrong with this tree?",
-      desc: "Upload or capture a photo showing the leaves, trunk, or affected area to get a likely diagnosis.",
-      btnLabel: "Check for problems",
-      disclaimer: "This is a rough first look, not a diagnosis. Many issues look similar in one photo — if it looks serious, get an in-person check from a horticulturist or your ACVA verifier before acting.",
-    })}`;
-}
-
-async function analyzeImage(mode) {
-  const st = state.analysis[mode];
-  if (!st.photo) return;
-  st.loading = true;
-  st.error = null;
-  st.result = null;
-  refreshAnalysisSection(mode);
-
-  try {
-    const [meta, base64] = st.photo.split(",");
-    const mimeMatch = meta.match(/data:(.*);base64/);
-    const mimeType = mimeMatch ? mimeMatch[1] : "image/jpeg";
-
-    const res = await fetch("/.netlify/functions/analyze", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ imageBase64: base64, mimeType, mode }),
-    });
-    if (!res.ok) throw new Error("Analysis backend unavailable (status " + res.status + ")");
-    const data = await res.json();
-    if (!data.text) throw new Error("Empty response");
-    st.result = data.text;
-  } catch (err) {
-    st.error = "Couldn't analyse this photo right now — the AI backend may not be connected yet, or there's a connection issue. Try again in a moment.";
-  } finally {
-    st.loading = false;
-    refreshAnalysisSection(mode);
-  }
-}
-
-function refreshAnalysisSection(mode) {
-  const btn = document.getElementById(`an-${mode}-btn`);
-  const st = state.analysis[mode];
-  if (btn) {
-    btn.disabled = st.loading || !st.photo;
-    btn.style.opacity = btn.disabled ? ".5" : "";
-    btn.style.cursor = btn.disabled ? "not-allowed" : "";
-    btn.textContent = st.loading ? "Analysing..." : (mode === "species" ? "Identify this tree" : "Check for problems");
-  }
-  const resultEl = document.getElementById(`an-${mode}-result`);
-  if (resultEl) resultEl.innerHTML = analysisResultHTML(mode, st);
-}
-
-function bindAnalysisSection(mode) {
-  const input = document.getElementById(`an-${mode}-photo`);
-  input.addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    compressImageFile(file, (dataUrl) => {
-      state.analysis[mode].photo = dataUrl;
-      state.analysis[mode].result = null;
-      state.analysis[mode].error = null;
-      document.getElementById(`an-${mode}-preview`).innerHTML = analysisPreviewHTML(dataUrl);
-      refreshAnalysisSection(mode);
-    });
-  });
-  document.getElementById(`an-${mode}-btn`).addEventListener("click", () => analyzeImage(mode));
-}
-
-function bindAnalysisEvents() {
-  bindAnalysisSection("species");
-  bindAnalysisSection("problem");
-}
 
 function helpHTML() {
   return `
@@ -1792,37 +1487,14 @@ async function sendChatMessage(text) {
 
   const q = trimmed.toLowerCase();
   const activity = extractActivity(q);
-  const qtyInMessage = extractQuantity(q);
-
-  // If we previously asked "how many?" and this message is just a bare
-  // number (no new activity mentioned), complete that pending plan.
-  if (state.chat.pendingPlanActivity && qtyInMessage !== null && !activity) {
-    const pendingActivity = state.chat.pendingPlanActivity;
-    state.chat.pendingPlanActivity = null;
-    state.chat.messages.push({
-      role: "assistant",
-      text: planChatAnswer(pendingActivity, qtyInMessage, false),
-      pdf: { activity: pendingActivity, qty: qtyInMessage },
-    });
-    renderChatMessages();
-    return;
-  }
 
   // Plan requests and cost questions stay fully local — they use this site's
   // own calculator, so the numbers are exact rather than AI-estimated.
   if (isPlanRequest(q, activity)) {
-    if (qtyInMessage === null) {
-      // Don't assume a number — ask for the real one.
-      state.chat.pendingPlanActivity = activity;
-      state.chat.messages.push({
-        role: "assistant",
-        text: `Sure — ${planAskPhrase(activity)}`,
-      });
-      renderChatMessages();
-      return;
-    }
-    state.chat.pendingPlanActivity = null;
-    state.chat.messages.push({ role: "assistant", text: planChatAnswer(activity, qtyInMessage, false), pdf: { activity, qty: qtyInMessage } });
+    let qty = extractQuantity(q);
+    const usedDefault = qty === null;
+    if (usedDefault) qty = DEFAULT_PLAN_QTY[activity];
+    state.chat.messages.push({ role: "assistant", text: planChatAnswer(activity, qty, usedDefault), pdf: { activity, qty } });
     renderChatMessages();
     return;
   }
@@ -1879,4 +1551,392 @@ function bindHelpEvents() {
   });
 
   renderChatMessages();
+}/* ============================================================
+   SCAN PLANT TAB
+   ============================================================ */
+
+const SCAN_SLOTS = [
+  { key: "whole", label: "Whole plant", hint: "Step back, show the full shape" },
+  { key: "leaftop", label: "Leaf — top", hint: "Close-up of an affected leaf" },
+  { key: "leafunder", label: "Leaf — underside", hint: "Where pests and spores hide" },
+  { key: "barkflower", label: "Bark or flower", hint: "Optional, helps identify" },
+];
+
+let scanState = {
+  photos: {},
+  location: null,
+  locationStatus: "",
+  duration: "",
+  watering: "",
+  spreading: "",
+  notes: "",
+  loading: false,
+  result: null,
+  error: "",
+};
+
+function scanOpts(field, pairs) {
+  return pairs
+    .map(function (p) {
+      return `<option value="${esc(p[0])}"${scanState[field] === p[0] ? " selected" : ""}>${esc(p[1])}</option>`;
+    })
+    .join("");
+}
+
+function scanHTML() {
+  return `
+    <div class="app-header">
+      <h2>Scan a Plant or Tree</h2>
+      <p>Photograph a plant to identify it and check its health. More photos and more detail give a better answer — one blurry photo gives a weak one.</p>
+      <p class="note-banner" style="margin-top:14px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        <span>This is guidance, not a lab test. Many plant diseases look identical in a photograph. Confirm with your agriculture extension officer or Krishi Vigyan Kendra before spending money on treatment.</span>
+      </p>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 4px;font-size:15px">1. Add photos</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 16px">The first one is required. The rest are optional but make the answer noticeably better.</p>
+      <div class="scan-slots">
+        ${SCAN_SLOTS.map(function (s, i) {
+          const has = scanState.photos[s.key];
+          return `
+          <label class="scan-slot${has ? " filled" : ""}" for="scan-file-${s.key}">
+            ${has ? `<img src="${has.preview}" alt="">` : `
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/><circle cx="12" cy="13" r="3.5"/></svg>`}
+            <b>${s.label}${i === 0 ? " *" : ""}</b>
+            <span>${has ? "Tap to replace" : s.hint}</span>
+            <input type="file" accept="image/*" capture="environment" id="scan-file-${s.key}" data-scan-slot="${s.key}" hidden>
+          </label>`;
+        }).join("")}
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 4px;font-size:15px">2. Where are you?</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 14px">Location rules out most of the world's plants instantly. This is the single biggest accuracy gain.</p>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn-outline" id="scan-loc">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px;vertical-align:-2px"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+          Use my location
+        </button>
+        <span style="font-size:13px;color:var(--ink-soft)">${esc(scanState.locationStatus || "Optional — skip if you prefer")}</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 4px;font-size:15px">3. A few questions</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 16px">A photo cannot show any of this, and it changes the diagnosis completely.</p>
+      <div class="field-grid">
+        <div class="field">
+          <label>How long has it looked like this?</label>
+          <select id="scan-duration">
+            ${scanOpts("duration", [["", "Not sure"], ["A few days", "A few days"], ["1-2 weeks", "1–2 weeks"], ["A month or more", "A month or more"]])}
+          </select>
+        </div>
+        <div class="field">
+          <label>How often is it watered?</label>
+          <select id="scan-watering">
+            ${scanOpts("watering", [["", "Not sure"], ["Daily", "Daily"], ["Every few days", "Every few days"], ["Weekly or less", "Weekly or less"], ["Rain only", "Rain only"]])}
+          </select>
+        </div>
+        <div class="field">
+          <label>Are nearby plants also affected?</label>
+          <select id="scan-spreading">
+            ${scanOpts("spreading", [["", "Not sure"], ["Yes, it is spreading", "Yes, spreading"], ["No, only this one", "No, only this one"]])}
+          </select>
+        </div>
+        <div class="field">
+          <label>Anything else? (optional)</label>
+          <input type="text" id="scan-notes" placeholder="e.g. recently transplanted" value="${esc(scanState.notes)}">
+        </div>
+      </div>
+      <div style="margin-top:18px">
+        <button class="btn-gradient" id="scan-go"${scanState.loading ? " disabled" : ""}>
+          ${scanState.loading ? "Analysing…" : "Scan plant"}
+        </button>
+      </div>
+      ${scanState.error ? `<p style="margin:14px 0 0;font-size:13px;color:#b3261e">${esc(scanState.error)}</p>` : ""}
+    </div>
+
+    <div id="scan-result">${scanState.result ? scanResultHTML(scanState.result) : ""}</div>`;
+}
+
+function confidencePill(level) {
+  const map = { high: "#1a7f4b", medium: "#b8860b", low: "#b3261e" };
+  const word = { high: "High confidence", medium: "Medium confidence", low: "Low confidence — treat as a guess" };
+  const c = map[level] || "#6b7280";
+  return `<span class="scan-pill" style="background:${c}15;color:${c};border-color:${c}40">${word[level] || "Confidence unknown"}</span>`;
+}
+
+function scanResultHTML(r) {
+  if (r.isPlant === false) {
+    return `<div class="panel"><h3 style="margin:0 0 8px;font-size:15px">That doesn't look like a plant</h3>
+      <p style="font-size:13.5px;color:var(--ink-soft);margin:0">Try again with a clear photo of a leaf, branch, or the whole plant.</p></div>`;
+  }
+
+  const id = r.identification || {};
+  const ab = r.about || {};
+  const he = r.health || {};
+  const problems = Array.isArray(he.problems) ? he.problems : [];
+  const alts = Array.isArray(id.alternatives) ? id.alternatives : [];
+
+  const row = (label, val) =>
+    val ? `<div class="scan-row"><span>${label}</span><b>${esc(val)}</b></div>` : "";
+
+  const statusColor =
+    he.status === "healthy" ? "#1a7f4b" : he.status === "problem detected" ? "#b3261e" : "#6b7280";
+
+  return `
+    <div class="panel">
+      <div class="scan-idhead">
+        <div>
+          <h3 style="margin:0 0 4px;font-size:20px">${esc(id.commonName || "Not identified")}</h3>
+          <p style="margin:0;font-size:14px;font-style:italic;color:var(--ink-soft)">${esc(id.botanicalName || "")}</p>
+        </div>
+        ${confidencePill(id.confidence)}
+      </div>
+      ${row("Local names", id.localNames)}
+      ${row("Family", id.family)}
+      ${ab.description ? `<p style="font-size:13.5px;line-height:1.65;margin:14px 0 0">${esc(ab.description)}</p>` : ""}
+    </div>
+
+    ${
+      alts.length
+        ? `<div class="panel">
+      <h3 style="margin:0 0 10px;font-size:15px">Could also be</h3>
+      ${alts
+        .map(
+          (a) =>
+            `<div style="margin-bottom:12px"><b style="font-size:13.5px">${esc(a.name || "")}</b>
+        <p style="margin:3px 0 0;font-size:13px;color:var(--ink-soft);line-height:1.6">${esc(a.howToTellApart || "")}</p></div>`
+        )
+        .join("")}
+    </div>`
+        : ""
+    }
+
+    <div class="panel">
+      <h3 style="margin:0 0 12px;font-size:15px">Plant details</h3>
+      ${row("Native to", ab.nativeRegion)}
+      ${row("Mature size", ab.matureSize)}
+      ${row("Lifespan", ab.lifespan)}
+      ${row("Sunlight", ab.sunlight)}
+      ${row("Water", ab.water)}
+      ${row("Soil", ab.soil)}
+      ${row("Uses", ab.uses)}
+      ${
+        ab.carbonNote
+          ? `<p class="note-banner" style="margin-top:14px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+        <span>${esc(ab.carbonNote)}</span></p>`
+          : ""
+      }
+    </div>
+
+    <div class="panel">
+      <div class="scan-idhead">
+        <h3 style="margin:0;font-size:15px">Health check</h3>
+        <span class="scan-pill" style="background:${statusColor}15;color:${statusColor};border-color:${statusColor}40">${esc(
+    he.status || "unknown"
+  )}</span>
+      </div>
+      ${he.summary ? `<p style="font-size:13.5px;line-height:1.65;margin:12px 0 0">${esc(he.summary)}</p>` : ""}
+    </div>
+
+    ${problems
+      .map(
+        (p) => `
+      <div class="panel">
+        <div class="scan-idhead">
+          <div>
+            <h3 style="margin:0 0 3px;font-size:16px">${esc(p.name || "Problem")}</h3>
+            <p style="margin:0;font-size:12.5px;color:var(--ink-soft);text-transform:capitalize">${esc(p.type || "")}</p>
+          </div>
+          ${confidencePill(p.confidence)}
+        </div>
+        ${p.visibleSigns ? `<div class="scan-block"><span>What I can see</span><p>${esc(p.visibleSigns)}</p></div>` : ""}
+        ${p.organicTreatment ? `<div class="scan-block"><span>Organic / cultural fix</span><p>${esc(p.organicTreatment)}</p></div>` : ""}
+        ${p.chemicalTreatment ? `<div class="scan-block"><span>Chemical option</span><p>${esc(p.chemicalTreatment)}</p></div>` : ""}
+        ${p.prevention ? `<div class="scan-block"><span>Preventing it next time</span><p>${esc(p.prevention)}</p></div>` : ""}
+      </div>`
+      )
+      .join("")}
+
+    ${
+      r.betterPhotoTip
+        ? `<div class="panel"><h3 style="margin:0 0 8px;font-size:15px">Get a better answer</h3>
+      <p style="font-size:13.5px;line-height:1.6;margin:0;color:var(--ink-soft)">${esc(r.betterPhotoTip)}</p></div>`
+        : ""
+    }
+
+    ${
+      r.caution
+        ? `<div class="panel" style="border-color:#e0b34a60;background:#fffaf0">
+      <h3 style="margin:0 0 8px;font-size:15px">Important limits</h3>
+      <p style="font-size:13.5px;line-height:1.65;margin:0">${esc(r.caution)}</p>
+      <p style="font-size:13px;line-height:1.6;margin:10px 0 0;color:var(--ink-soft)">Never spray anything based on a phone app alone. Confirm with your local agriculture extension officer or Krishi Vigyan Kendra first.</p>
+    </div>`
+        : ""
+    }`;
+}
+
+/* Shrink the photo before upload — keeps it fast and cheap */
+function scanReadImage(file) {
+  return new Promise(function (resolve, reject) {
+    const reader = new FileReader();
+    reader.onerror = function () {
+      reject(new Error("Could not read that image."));
+    };
+    reader.onload = function () {
+      const img = new Image();
+      img.onerror = function () {
+        reject(new Error("Could not open that image."));
+      };
+      img.onload = function () {
+        const max = 1024;
+        let w = img.width;
+        let h = img.height;
+        if (w > max || h > max) {
+          const scale = max / Math.max(w, h);
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+        resolve({ preview: dataUrl, data: dataUrl.split(",")[1], mimeType: "image/jpeg" });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function bindScanEvents() {
+  document.querySelectorAll("[data-scan-slot]").forEach(function (input) {
+    input.addEventListener("change", function () {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const key = input.dataset.scanSlot;
+      scanReadImage(file)
+        .then(function (img) {
+          scanState.photos[key] = img;
+          scanState.error = "";
+          renderAppContent();
+        })
+        .catch(function (err) {
+          scanState.error = err.message;
+          renderAppContent();
+        });
+    });
+  });
+
+  const locBtn = document.getElementById("scan-loc");
+  if (locBtn) {
+    locBtn.addEventListener("click", function () {
+      if (!navigator.geolocation) {
+        scanState.locationStatus = "Your browser can't share location.";
+        renderAppContent();
+        return;
+      }
+      scanState.locationStatus = "Getting location…";
+      renderAppContent();
+      navigator.geolocation.getCurrentPosition(
+        function (pos) {
+          scanState.location = {
+            lat: pos.coords.latitude.toFixed(4),
+            lng: pos.coords.longitude.toFixed(4),
+          };
+          scanState.locationStatus = "Location added ✓";
+          renderAppContent();
+        },
+        function () {
+          scanState.locationStatus = "Location not available — that's fine, carry on.";
+          renderAppContent();
+        },
+        { timeout: 8000 }
+      );
+    });
+  }
+
+  ["duration", "watering", "spreading", "notes"].forEach(function (f) {
+    const el = document.getElementById("scan-" + f);
+    if (el) {
+      el.addEventListener("change", function () {
+        scanState[f] = el.value;
+      });
+    }
+  });
+
+  const goBtn = document.getElementById("scan-go");
+  if (goBtn) goBtn.addEventListener("click", runScan);
+}
+
+function runScan() {
+  const notesEl = document.getElementById("scan-notes");
+  if (notesEl) scanState.notes = notesEl.value;
+
+  const images = SCAN_SLOTS.filter(function (s) {
+    return scanState.photos[s.key];
+  }).map(function (s) {
+    return {
+      label: s.label,
+      data: scanState.photos[s.key].data,
+      mimeType: scanState.photos[s.key].mimeType,
+    };
+  });
+
+  if (images.length === 0) {
+    scanState.error = "Add at least one photo first.";
+    renderAppContent();
+    return;
+  }
+
+  scanState.loading = true;
+  scanState.error = "";
+  scanState.result = null;
+  renderAppContent();
+
+  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+  fetch("/.netlify/functions/plant-scan", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      images: images,
+      location: scanState.location,
+      month: monthNames[new Date().getMonth()],
+      duration: scanState.duration,
+      watering: scanState.watering,
+      spreading: scanState.spreading,
+      notes: scanState.notes,
+    }),
+  })
+    .then(function (res) {
+      return res.json().then(function (body) {
+        return { ok: res.ok, body: body };
+      });
+    })
+    .then(function (out) {
+      scanState.loading = false;
+      if (!out.ok) {
+        scanState.error =
+          (out.body && out.body.error) === "GEMINI_API_KEY is not configured on this site yet."
+            ? "The scanner isn't connected yet — the API key is missing on the server."
+            : "Scan failed. The free daily limit may be used up, or the photo may be unclear. Try again.";
+      } else {
+        scanState.result = out.body;
+      }
+      renderAppContent();
+      const el = document.getElementById("scan-result");
+      if (el && scanState.result) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    })
+    .catch(function () {
+      scanState.loading = false;
+      scanState.error = "Couldn't reach the server. Check your connection and try again.";
+      renderAppContent();
+    });
 }

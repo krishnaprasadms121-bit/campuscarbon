@@ -66,6 +66,7 @@ exports.handler = async function (event) {
     const text = parts.map((p) => p.text || "").join("\n").trim();
 
     if (!text) {
+      // Common cause: the model's safety filters blocked the reply (finishReason: SAFETY/OTHER)
       const reason = candidate && candidate.finishReason ? candidate.finishReason : "unknown";
       return { statusCode: 502, body: JSON.stringify({ error: "Empty response from model.", reason }) };
     }

@@ -368,4 +368,93 @@ img { max-width: 100%; display: block; }
 .flex { display: flex; }
 .gap-10 { gap: 10px; }
 .mt-16 { margin-top: 16px; }
-.hidden { display: none !important; }
+.hidden { display: none !important; }/* ============ SCAN PLANT TAB ============ */
+.scan-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+.scan-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 132px;
+  padding: 14px 10px;
+  text-align: center;
+  border: 1.5px dashed var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink-soft);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color .15s, background .15s;
+}
+.scan-slot:hover { border-color: var(--forest-900); }
+.scan-slot b { font-size: 12.5px; color: var(--ink); }
+.scan-slot span { font-size: 11.5px; line-height: 1.4; }
+.scan-slot.filled { border-style: solid; padding: 0; }
+.scan-slot.filled img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.scan-slot.filled b,
+.scan-slot.filled span {
+  position: relative;
+  z-index: 1;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,.7);
+}
+.scan-slot.filled::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,.05));
+}
+.scan-slot.filled b { margin-top: auto; }
+.scan-slot.filled span { margin-bottom: 12px; }
+.scan-slot.filled::after { z-index: 0; }
+
+.scan-pill {
+  display: inline-block;
+  padding: 5px 11px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.scan-idhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.scan-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.scan-row:last-child { border-bottom: none; }
+.scan-row span { color: var(--ink-soft); flex-shrink: 0; }
+.scan-row b { text-align: right; font-weight: 600; }
+.scan-block { margin-top: 14px; }
+.scan-block span {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 4px;
+}
+.scan-block p { margin: 0; font-size: 13.5px; line-height: 1.65; }
