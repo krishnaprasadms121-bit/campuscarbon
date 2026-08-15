@@ -67,10 +67,19 @@ const GEMINI_MODELS = [
 ];
 
 const MAX_HISTORY = 8;   // messages sent to the AI — keeps token cost flat
+const MAX_CHARS = 4000;
 const MAX_REPLY_TOKENS = 700;
-/* Searched answers are longer — they carry findings and source names — so
-   the web-capable models get more room than the plain ones. */
-const MAX_REPLY_TOKENS_SEARCH = 1600;
+
+/* The searching models get a MUCH SMALLER request than the plain ones.
+   This is the whole reason web search failed at first: compound has to pull
+   entire web pages into the request before it answers, so it leaves far less
+   room for our own conversation. Sending it the same 8 messages we send a
+   plain model produced HTTP 413 "request body too large" every single time —
+   before it had even searched. The Groq playground succeeded on the identical
+   question because it sent one short message. So: keep it short for compound. */
+const SEARCH_HISTORY = 4;
+const SEARCH_MAX_CHARS = 1200;
+const SEARCH_REPLY_TOKENS = 1024;
 
 /* ------------------------------------------------------------------ */
 
@@ -79,9 +88,36 @@ function normalise(messages) {
     .slice(-MAX_HISTORY)
     .map((m) => ({
       role: m.role === "assistant" || m.role === "model" ? "assistant" : "user",
-      content: String(m.content || "").slice(0, 4000),
+      content: String(m.content || "").slice(0, MAX_CHARS),
     }))
     .filter((m) => m.content.trim().length > 0);
+}
+
+/* Trim the conversation down for a search-capable model. */
+function shrinkForSearch(messages) {
+  return messages
+    .slice(-SEARCH_HISTORY)
+    .map((m) => ({ role: m.role, content: m.content.slice(0, SEARCH_MAX_CHARS) }));
+}
+
+/* Last resort for a search model: just the newest question on its own —
+   exactly the shape that works in the Groq playground. */
+function justTheQuestion(messages) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      return [{ role: "user", content: messages[i].content.slice(0, SEARCH_MAX_CHARS) }];
+    }
+  }
+  return messages.slice(-1);
+}
+
+/* Compound can emit its reasoning trace around the answer. Strip it so the
+   visitor never sees <think> blocks in the chat bubble. */
+function cleanText(t) {
+  return String(t)
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<\/?(?:think|output)>/gi, "")
+    .trim();
 }
 
 /* One attempt at one model. tokenParam lets us retry with the other spelling
@@ -89,14 +125,18 @@ function normalise(messages) {
    "max_completion_tokens", and the newer models REJECT the old name outright
    with a 400. Older ones may only know the old name. Rather than guess, we
    try the current name and fall back to the legacy one if it is refused. */
-async function groqAttempt(apiKey, model, messages, tokenParam) {
+async function groqAttempt(apiKey, model, messages, tokenParam, opts) {
+  const options = opts || {};
   const body = {
     model: model.id,
     messages: [{ role: "system", content: buildPrompt(model.search) }, ...messages],
   };
-  body[tokenParam] = model.search ? MAX_REPLY_TOKENS_SEARCH : MAX_REPLY_TOKENS;
+  body[tokenParam] = model.search ? SEARCH_REPLY_TOKENS : MAX_REPLY_TOKENS;
   // Leave compound on its own defaults — it orchestrates tools internally.
   if (!model.search) body.temperature = 0.6;
+  // Bias web results towards India — this is an Indian site for Indian
+  // institutions. Dropped automatically if Groq ever rejects the setting.
+  if (model.search && !options.noExtras) body.search_settings = { country: "in" };
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -122,14 +162,32 @@ async function callGroq(apiKey, messages) {
 
   for (const model of GROQ_MODELS) {
     try {
-      let attempt = await groqAttempt(apiKey, model, messages, "max_completion_tokens");
+      // Search models get a deliberately small request (see SEARCH_HISTORY).
+      let payload = model.search ? shrinkForSearch(messages) : messages;
+      let attempt = await groqAttempt(apiKey, model, payload, "max_completion_tokens");
 
       // If the reply-length parameter was the problem, retry with the old name
       // before writing this model off. Costs one extra call, only on failure.
       if (!attempt.ok && attempt.error.status === 400 &&
           /max_completion_tokens|max_tokens|unsupported_parameter/i.test(attempt.error.detail)) {
         console.log(`[chat] ${model.id}: retrying with legacy max_tokens`);
-        attempt = await groqAttempt(apiKey, model, messages, "max_tokens");
+        attempt = await groqAttempt(apiKey, model, payload, "max_tokens");
+      }
+
+      // An unrecognised optional setting (e.g. search_settings) — drop the
+      // extras and try again rather than losing the model entirely.
+      if (!attempt.ok && attempt.error.status === 400 && model.search) {
+        console.log(`[chat] ${model.id}: retrying without search_settings`);
+        attempt = await groqAttempt(apiKey, model, payload, "max_completion_tokens", { noExtras: true });
+      }
+
+      // 413 = our request is too big for a searching model to work with.
+      // Strip it back to just the newest question — the exact shape that
+      // succeeds in the Groq playground — and give it one more go.
+      if (!attempt.ok && attempt.error.status === 413 && model.search) {
+        console.log(`[chat] ${model.id}: 413, retrying with question only`);
+        payload = justTheQuestion(messages);
+        attempt = await groqAttempt(apiKey, model, payload, "max_completion_tokens");
       }
 
       if (!attempt.ok) {
@@ -145,7 +203,7 @@ async function callGroq(apiKey, messages) {
 
       const data = await res.json();
       const choice = (data.choices || [])[0];
-      const text = ((choice?.message?.content) || "").trim();
+      const text = cleanText(choice?.message?.content || "");
 
       if (text) {
         // executed_tools tells us whether it actually searched — handy when
