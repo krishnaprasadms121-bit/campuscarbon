@@ -1191,10 +1191,19 @@ const TREE_WORDS = ["tree", "trees", "sapling", "saplings", "afforestation", "af
 const BIOGAS_WORDS = ["biogas", "digester", "bio-gas", "gobar"];
 const SOLAR_WORDS = ["solar", "pv", "panel", "panels", "rooftop", "photovoltaic"];
 const PLAN_TRIGGER_REGEX = /\b(plan|plans|planning|planned|proposal|organi[sz]e|full plan|help me start|want to do|want to start|set ?up|project for)\b/;
+/* Matches a quantity sitting directly next to a project word — "500 trees",
+   "50kw solar", "10 m3 biogas". Deliberately strict: the old version treated
+   ANY number anywhere as a plan request, so a general question like
+   "how tall do neem trees grow in 10 years" was hijacked into a tree plan. */
+const QTY_NEXT_TO_ACTIVITY_REGEX =
+  /\b\d+(?:\.\d+)?\s*(?:kw|kwp|mw|kilowatts?|megawatts?|m3|cum|cubic\s*(?:metres?|meters?))?\s*(?:of\s+)?(?:tree|trees|sapling|saplings|afforestation|plantation|solar|panel|panels|pv|rooftop|biogas|digester)\b/;
+
 function isPlanRequest(q, activity) {
   if (!activity) return false;
+  // Either the visitor actually asked for a plan/proposal/project...
   if (PLAN_TRIGGER_REGEX.test(q)) return true;
-  if (extractQuantity(q) !== null) return true;
+  // ...or they named a quantity right next to the thing, e.g. "500 trees".
+  if (QTY_NEXT_TO_ACTIVITY_REGEX.test(q.replace(/,/g, ""))) return true;
   return false;
 }
 const ON_TOPIC_WORDS = [
@@ -1213,6 +1222,12 @@ function extractActivity(q) {
 }
 function extractQuantity(q) {
   const cleaned = q.replace(/,/g, "");
+  // Prefer the number sitting next to the project word, so "plan 500 trees
+  // for our 2026 campus drive" gives 500, not 2026.
+  const adjacent = cleaned.match(
+    /(\d+(?:\.\d+)?)\s*(?:kw|kwp|mw|kilowatts?|megawatts?|m3|cum|cubic\s*(?:metres?|meters?))?\s*(?:of\s+)?(?:tree|trees|sapling|saplings|afforestation|plantation|solar|panel|panels|pv|rooftop|biogas|digester)\b/
+  );
+  if (adjacent) return Number(adjacent[1]);
   const m = cleaned.match(/(\d+(\.\d+)?)/);
   return m ? Number(m[1]) : null;
 }
@@ -1359,17 +1374,18 @@ const HELP_SUGGESTIONS = [
   "How do I apply, step by step?",
   "Plan an afforestation project for 500 trees",
   "Plan a 50kW solar project",
-  "How do I sell my credits?",
+  "Explain photosynthesis simply",
+  "Help me write an email to my HOD",
 ];
 
 function helpHTML() {
   return `
     <div class="app-header">
       <h2>Help Assistant</h2>
-      <p>Ask me anything about carbon credits — I'm AI-powered for open questions. Ask for a full plan (e.g. "plan an afforestation project for 500 trees") and I'll generate a downloadable PDF using this site's own calculations.</p>
+      <p>Ask me anything at all — I'm a general AI assistant, with extra depth on carbon credits and CCTS. Ask for a full plan (e.g. "plan an afforestation project for 500 trees") and I'll generate a downloadable PDF using this site's own calculations.</p>
       <p class="note-banner" style="margin-top:14px">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        <span>If the AI backend isn't connected yet, I'll automatically use my built-in carbon-credit knowledge instead — so this always works.</span>
+        <span>I can be wrong. For medical, legal or financial questions, please confirm with a qualified professional before acting.</span>
       </p>
     </div>
 
@@ -1426,7 +1442,7 @@ function respondTo(rawQuery) {
   const q = rawQuery.toLowerCase().trim();
 
   if (isGreeting(q) && q.length < 20) {
-    return { text: "Hello! Ask me about carbon credits, or ask me to plan an afforestation, solar, or biogas project — I'll build you a full plan with a downloadable PDF." };
+    return { text: "Hello! Ask me anything — I'm a general assistant. I'm especially good on carbon credits, and if you ask me to plan an afforestation, solar or biogas project I'll build you a full plan with a downloadable PDF." };
   }
 
   const activity = extractActivity(q);
@@ -1457,16 +1473,23 @@ function respondTo(rawQuery) {
   const kb = matchKnowledgeBase(q);
   if (kb) return { text: kb.answer };
 
+  // NOTE: these two only ever appear when BOTH AI providers are unreachable,
+  // so the site has dropped to its built-in offline answers. Those only cover
+  // carbon credits — hence the wording.
   if (!isOnTopic(q)) {
-    return { text: "I can only help with carbon credit topics — applying, verification, trading, maintenance, or planning a tree/solar/biogas project. Try rephrasing, or tap one of the suggestions below." };
+    return { text: "I can't reach my AI assistant at the moment, so I'm running on built-in answers — and those only cover carbon credits. Please try again in a minute, or ask me about applying, verification, trading, or planning a tree/solar/biogas project." };
   }
 
-  return { text: "I don't have a specific answer for that yet, but I can help with applying for credits, verification, selling/trading, maintenance, or planning a tree/solar/biogas project — try asking one of those, or tap a suggestion below." };
+  return { text: "I can't reach my AI assistant right now, so I'm running on built-in answers. I can still help with applying for credits, verification, selling/trading, maintenance, or planning a tree/solar/biogas project — try one of those, or tap a suggestion below." };
 }
 
 async function callAIAssistant(history) {
+  // Only send the last 8 messages, not the whole conversation. The AI still
+  // remembers the recent thread perfectly well, but the token cost of each
+  // message stops growing forever — which is what protects the free tier.
   const apiMessages = history
     .filter((m) => !m.pending)
+    .slice(-8)
     .map((m) => ({ role: m.role, content: m.text }));
   const res = await fetch("/.netlify/functions/chat", {
     method: "POST",
