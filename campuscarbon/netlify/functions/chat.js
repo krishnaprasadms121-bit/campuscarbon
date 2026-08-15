@@ -1,27 +1,29 @@
 /* CampusCarbon — Assistant backend
    ---------------------------------------------------------------------------
-   PRIMARY   : Groq (free tier)  — needs GROQ_API_KEY
-   FALLBACK  : Google Gemini     — needs GEMINI_API_KEY (already set on this site)
+   WEB SEARCH : Tavily        — needs TAVILY_API_KEY  (free, no credit card)
+   ANSWERING  : Groq          — needs GROQ_API_KEY
+   FALLBACK   : Google Gemini — needs GEMINI_API_KEY  (already on this site)
 
-   Why two providers:
-   The Scan Plant tab uses Gemini and sends photos, which is expensive. If the
-   chat also used Gemini, a busy chat day could drain the scanner's quota. Groq
-   has its own separate free quota, so the chat can be hammered all day and the
-   plant scanner is untouched. Gemini is only used if Groq is unavailable.
+   HOW SEARCH WORKS NOW (and why it changed):
+   We used to ask groq/compound to search for us. It refused every request from
+   this site with HTTP 413 "request body too large" — it pulls whole web pages
+   into its own request and leaves very little room for ours, and its real
+   limits are not documented anywhere. Three attempts to guess them failed.
 
-   Why groq/compound is first:
-   It is a model PLUS tools — it can search the web, open a page, run a
-   calculation, and it decides for itself when that is needed. That is what
-   lets the assistant answer "what is the current price of carbon credits"
-   instead of saying it has no internet access. Everything below it in the
-   chain is a plain model with no web access, which is why the system prompt
-   changes depending on which one answers (see buildPrompt).
+   So this version does the searching itself. Our code calls Tavily, takes the
+   top 3 SHORT snippets, and hands them to a plain Groq model as context. We
+   control exactly how much text goes in, so there is no hidden ceiling to
+   trip over. It also runs on the plain models' 1,000 requests/day instead of
+   compound's 250.
 
-   Set GROQ_API_KEY in Netlify:
-     Site configuration -> Environment variables -> Add a variable
-     Key:   GROQ_API_KEY
-     Value: your gsk_... key      <- mark it as a SECRET, not a plain variable
-   Free key, no credit card: https://console.groq.com/keys
+   If Tavily is missing, slow, or out of credits, the chat still works — it
+   just answers from the model's own knowledge and says so. Nothing breaks.
+
+   Netlify setup — Site configuration -> Environment variables:
+     GROQ_API_KEY     your gsk_...  key   (mark as SECRET)
+     TAVILY_API_KEY   your tvly_... key   (mark as SECRET)
+     GEMINI_API_KEY   unchanged, still powers the Scan Plant tab
+   Free Tavily key, no card: https://app.tavily.com
    --------------------------------------------------------------------------- */
 
 const BASE_PROMPT = `You are the CampusCarbon Assistant, a general-purpose AI on an Indian website that helps universities and institutions apply for carbon credits under India's Carbon Credit Trading Scheme (CCTS).
@@ -38,27 +40,28 @@ For medical, legal, financial or tax questions: give helpful general information
 
 If someone seems distressed or in danger, reply briefly and warmly, and encourage them to reach out to someone they trust or a professional.`;
 
-/* The instructions MUST match what the model can actually do. Telling a
-   search-capable model it has no internet makes it refuse to search; telling
-   a plain model it can search makes it invent sources. */
-const CAN_SEARCH = `You can search the web, open pages, and run calculations. Use those tools whenever a question depends on current facts — prices, news, recent policy changes, or who currently holds a position. When you use a source, say where the information came from. Do not search for things you already know; answer timeless questions directly.`;
-
 const NO_SEARCH = `You have no live internet access, so you cannot look up today's prices, news or recent events. If a question needs current information, say so and suggest checking an official source.`;
 
-function buildPrompt(canSearch) {
-  return [BASE_PROMPT, canSearch ? CAN_SEARCH : NO_SEARCH, STYLE_AND_SAFETY].join("\n\n");
+/* When we DID manage to search, the instructions must say so — otherwise the
+   model ignores the results in front of it and recites its training cutoff. */
+function searchNote(context) {
+  return `Live web search results are provided below. They were fetched moments ago, so they are more current than your own training. Use them as the basis for your answer and name the source (site or URL) you relied on. If they do not actually answer the question, say so rather than guessing.
+
+--- WEB SEARCH RESULTS ---
+${context}
+--- END OF RESULTS ---`;
+}
+
+function buildPrompt(context) {
+  return [BASE_PROMPT, context ? searchNote(context) : NO_SEARCH, STYLE_AND_SAFETY].join("\n\n");
 }
 
 /* Never hard-code a single model — providers retire them without warning.
-   (That is what silently broke the Help Assistant when Gemini 2.5 was pulled.)
-   Tried in order, top to bottom. The two compound entries can search the web;
-   everything below them cannot. */
+   (That is what silently broke the Help Assistant when Gemini 2.5 was pulled.) */
 const GROQ_MODELS = [
-  { id: "groq/compound", search: true },       // model + web search + calculator
-  { id: "groq/compound-mini", search: true },  // same tools, faster, single tool call
-  { id: "llama-3.3-70b-versatile", search: false },
-  { id: "openai/gpt-oss-20b", search: false },
-  { id: "llama-3.1-8b-instant", search: false },
+  "llama-3.3-70b-versatile",
+  "openai/gpt-oss-20b",
+  "llama-3.1-8b-instant",
 ];
 
 const GEMINI_MODELS = [
@@ -66,20 +69,13 @@ const GEMINI_MODELS = [
   "gemini-flash-latest", // permanent safety net — Google keeps this alias alive
 ];
 
-const MAX_HISTORY = 8;   // messages sent to the AI — keeps token cost flat
+const MAX_HISTORY = 8;      // messages sent to the AI — keeps token cost flat
 const MAX_CHARS = 4000;
 const MAX_REPLY_TOKENS = 700;
 
-/* The searching models get a MUCH SMALLER request than the plain ones.
-   This is the whole reason web search failed at first: compound has to pull
-   entire web pages into the request before it answers, so it leaves far less
-   room for our own conversation. Sending it the same 8 messages we send a
-   plain model produced HTTP 413 "request body too large" every single time —
-   before it had even searched. The Groq playground succeeded on the identical
-   question because it sent one short message. So: keep it short for compound. */
-const SEARCH_HISTORY = 4;
-const SEARCH_MAX_CHARS = 1200;
-const SEARCH_REPLY_TOKENS = 1024;
+const SEARCH_RESULTS = 3;   // Tavily allows 1,000 searches/month on the free plan
+const SNIPPET_CHARS = 550;  // per result — 3 x 550 is about 400 tokens total
+const SEARCH_TIMEOUT_MS = 6000;
 
 /* ------------------------------------------------------------------ */
 
@@ -93,50 +89,99 @@ function normalise(messages) {
     .filter((m) => m.content.trim().length > 0);
 }
 
-/* Trim the conversation down for a search-capable model. */
-function shrinkForSearch(messages) {
-  return messages
-    .slice(-SEARCH_HISTORY)
-    .map((m) => ({ role: m.role, content: m.content.slice(0, SEARCH_MAX_CHARS) }));
-}
-
-/* Last resort for a search model: just the newest question on its own —
-   exactly the shape that works in the Groq playground. */
-function justTheQuestion(messages) {
+function latestQuestion(messages) {
   for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i].role === "user") {
-      return [{ role: "user", content: messages[i].content.slice(0, SEARCH_MAX_CHARS) }];
-    }
+    if (messages[i].role === "user") return messages[i].content;
   }
-  return messages.slice(-1);
+  return "";
 }
 
-/* Compound can emit its reasoning trace around the answer. Strip it so the
-   visitor never sees <think> blocks in the chat bubble. */
-function cleanText(t) {
-  return String(t)
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .replace(/<\/?(?:think|output)>/gi, "")
-    .trim();
+/* Only search when the question actually depends on current information.
+   Searching every message would burn the monthly Tavily allowance in days,
+   and most questions ("what is a carbon credit") do not need it. */
+const NEEDS_CURRENT_INFO = new RegExp(
+  [
+    "\\btoday'?s?\\b", "\\bcurrent(ly)?\\b", "\\blatest\\b", "\\brecent(ly)?\\b",
+    "\\bthis (year|month|week)\\b", "\\bnowadays\\b", "\\bright now\\b",
+    "\\bup[- ]?to[- ]?date\\b", "\\bnews\\b", "\\bprice(s)?\\b", "\\brate(s)?\\b",
+    "\\b20(2[5-9]|[3-9]\\d)\\b",
+    // "who is prime minister" must search even without the words "today" or
+    // "current" — people rarely phrase it that carefully.
+    "\\bwho\\s+(is|are|was|were)\\b", "\\bwho'?s\\b",
+    "\\b(prime minister|president|chief minister|ceo|governor)\\b",
+    "\\bsearch\\b", "\\blook up\\b", "\\bhappening\\b", "\\bnew rules?\\b",
+    "\\bdeadline\\b", "\\bannounce(d|ment)?\\b",
+  ].join("|"),
+  "i"
+);
+
+function shouldSearch(question) {
+  return NEEDS_CURRENT_INFO.test(question);
 }
 
-/* One attempt at one model. tokenParam lets us retry with the other spelling
-   of the reply-length setting: Groq deprecated "max_tokens" in favour of
-   "max_completion_tokens", and the newer models REJECT the old name outright
-   with a 400. Older ones may only know the old name. Rather than guess, we
-   try the current name and fall back to the legacy one if it is refused. */
-async function groqAttempt(apiKey, model, messages, tokenParam, opts) {
-  const options = opts || {};
+/* Ask Tavily, then squeeze the answer down to a few hundred words.
+   Returns null on ANY problem — a failed search must never break the chat. */
+async function webSearch(apiKey, question) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
+  try {
+    const res = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        query: question.slice(0, 400),
+        max_results: SEARCH_RESULTS,
+        search_depth: "basic",
+        include_answer: true,
+        country: "india",
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      console.log(`[chat] SEARCH FAILED HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      return null;
+    }
+
+    const data = await res.json();
+    const parts = [];
+    if (data.answer) parts.push(`Summary: ${String(data.answer).slice(0, 700)}`);
+
+    (data.results || []).slice(0, SEARCH_RESULTS).forEach((r, i) => {
+      parts.push(
+        `[${i + 1}] ${r.title || "Untitled"} — ${r.url || ""}\n${String(r.content || "").slice(0, SNIPPET_CHARS)}`
+      );
+    });
+
+    if (!parts.length) {
+      console.log("[chat] SEARCH returned nothing useful");
+      return null;
+    }
+    console.log(`[chat] SEARCHED "${question.slice(0, 60)}" -> ${(data.results || []).length} results`);
+    return parts.join("\n\n");
+  } catch (err) {
+    console.log(`[chat] SEARCH ERROR ${String(err && err.message ? err.message : err)}`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+
+/* Groq deprecated "max_tokens" in favour of "max_completion_tokens" and the
+   newer models reject the old name with a 400. Try the current name, fall
+   back to the legacy one rather than losing the model. */
+async function groqAttempt(apiKey, model, systemPrompt, messages, tokenParam) {
   const body = {
-    model: model.id,
-    messages: [{ role: "system", content: buildPrompt(model.search) }, ...messages],
+    model: model,
+    messages: [{ role: "system", content: systemPrompt }, ...messages],
+    temperature: 0.6,
   };
-  body[tokenParam] = model.search ? SEARCH_REPLY_TOKENS : MAX_REPLY_TOKENS;
-  // Leave compound on its own defaults — it orchestrates tools internally.
-  if (!model.search) body.temperature = 0.6;
-  // Bias web results towards India — this is an Indian site for Indian
-  // institutions. Dropped automatically if Groq ever rejects the setting.
-  if (model.search && !options.noExtras) body.search_settings = { country: "in" };
+  body[tokenParam] = MAX_REPLY_TOKENS;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -157,69 +202,37 @@ async function groqAttempt(apiKey, model, messages, tokenParam, opts) {
   return { ok: true, res };
 }
 
-async function callGroq(apiKey, messages) {
+async function callGroq(apiKey, systemPrompt, messages, searched) {
   let lastError = "no models attempted";
 
   for (const model of GROQ_MODELS) {
     try {
-      // Search models get a deliberately small request (see SEARCH_HISTORY).
-      let payload = model.search ? shrinkForSearch(messages) : messages;
-      let attempt = await groqAttempt(apiKey, model, payload, "max_completion_tokens");
+      let attempt = await groqAttempt(apiKey, model, systemPrompt, messages, "max_completion_tokens");
 
-      // If the reply-length parameter was the problem, retry with the old name
-      // before writing this model off. Costs one extra call, only on failure.
       if (!attempt.ok && attempt.error.status === 400 &&
           /max_completion_tokens|max_tokens|unsupported_parameter/i.test(attempt.error.detail)) {
-        console.log(`[chat] ${model.id}: retrying with legacy max_tokens`);
-        attempt = await groqAttempt(apiKey, model, payload, "max_tokens");
-      }
-
-      // An unrecognised optional setting (e.g. search_settings) — drop the
-      // extras and try again rather than losing the model entirely.
-      if (!attempt.ok && attempt.error.status === 400 && model.search) {
-        console.log(`[chat] ${model.id}: retrying without search_settings`);
-        attempt = await groqAttempt(apiKey, model, payload, "max_completion_tokens", { noExtras: true });
-      }
-
-      // 413 = our request is too big for a searching model to work with.
-      // Strip it back to just the newest question — the exact shape that
-      // succeeds in the Groq playground — and give it one more go.
-      if (!attempt.ok && attempt.error.status === 413 && model.search) {
-        console.log(`[chat] ${model.id}: 413, retrying with question only`);
-        payload = justTheQuestion(messages);
-        attempt = await groqAttempt(apiKey, model, payload, "max_completion_tokens");
+        console.log(`[chat] ${model}: retrying with legacy max_tokens`);
+        attempt = await groqAttempt(apiKey, model, systemPrompt, messages, "max_tokens");
       }
 
       if (!attempt.ok) {
-        lastError = `${model.id} -> ${attempt.error.message}`;
-        // Log the REAL reason. Vague errors waste hours — this is how the
-        // Gemini 2.5 shutdown stayed hidden for so long.
+        lastError = `${model} -> ${attempt.error.message}`;
+        // Log the REAL reason. Vague errors waste hours.
         console.log(`[chat] SKIPPED ${lastError}`);
-        // 429 = rate limited this minute. 4xx = model retired or bad request.
-        // Either way try the next one, then let Gemini answer.
         continue;
       }
-      const res = attempt.res;
 
-      const data = await res.json();
-      const choice = (data.choices || [])[0];
-      const text = cleanText(choice?.message?.content || "");
-
+      const data = await attempt.res.json();
+      const text = String((data.choices || [])[0]?.message?.content || "").trim();
       if (text) {
-        // executed_tools tells us whether it actually searched — handy when
-        // checking the Netlify function log to see why an answer was slow.
-        const tools = choice?.message?.executed_tools || data.executed_tools || [];
-        const used = Array.isArray(tools) && tools.length
-          ? " +" + tools.map((t) => t.type || t.name || "tool").join(",")
-          : "";
-        const via = `groq:${model.id}${used}`;
+        const via = `groq:${model}${searched ? " +web" : ""}`;
         console.log(`[chat] ANSWERED BY ${via}`);
         return { text, via };
       }
-      lastError = `${model.id} -> empty reply`;
+      lastError = `${model} -> empty reply`;
       console.log(`[chat] SKIPPED ${lastError}`);
     } catch (err) {
-      lastError = `${model.id} -> ${String(err)}`;
+      lastError = `${model} -> ${String(err)}`;
       console.log(`[chat] SKIPPED ${lastError}`);
     }
   }
@@ -227,7 +240,7 @@ async function callGroq(apiKey, messages) {
   throw new Error(lastError);
 }
 
-async function callGemini(apiKey, messages) {
+async function callGemini(apiKey, systemPrompt, messages, searched) {
   // Gemini uses "user" / "model" roles instead of "user" / "assistant"
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
@@ -243,7 +256,7 @@ async function callGemini(apiKey, messages) {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          system_instruction: { parts: [{ text: buildPrompt(false) }] },
+          system_instruction: { parts: [{ text: systemPrompt }] },
           contents: contents,
           generationConfig: { maxOutputTokens: MAX_REPLY_TOKENS },
         }),
@@ -251,6 +264,7 @@ async function callGemini(apiKey, messages) {
 
       if (!res.ok) {
         lastError = `${model} -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
+        console.log(`[chat] SKIPPED gemini ${lastError}`);
         continue;
       }
 
@@ -259,8 +273,9 @@ async function callGemini(apiKey, messages) {
       const parts = candidate?.content?.parts || [];
       const text = parts.map((p) => p.text || "").join("\n").trim();
       if (text) {
-        console.log(`[chat] ANSWERED BY gemini:${model}`);
-        return { text, via: `gemini:${model}` };
+        const via = `gemini:${model}${searched ? " +web" : ""}`;
+        console.log(`[chat] ANSWERED BY ${via}`);
+        return { text, via };
       }
       lastError = `${model} -> empty reply (finishReason: ${candidate?.finishReason || "unknown"})`;
       console.log(`[chat] SKIPPED gemini ${lastError}`);
@@ -282,6 +297,7 @@ exports.handler = async function (event) {
 
   const groqKey = process.env.GROQ_API_KEY;
   const geminiKey = process.env.GEMINI_API_KEY;
+  const tavilyKey = process.env.TAVILY_API_KEY;
 
   if (!groqKey && !geminiKey) {
     return {
@@ -302,12 +318,24 @@ exports.handler = async function (event) {
     return { statusCode: 400, body: JSON.stringify({ error: "No messages provided." }) };
   }
 
+  // 1. Search first, but only when the question needs current facts.
+  const question = latestQuestion(messages);
+  let context = null;
+  if (tavilyKey && shouldSearch(question)) {
+    context = await webSearch(tavilyKey, question);
+  } else if (!tavilyKey) {
+    console.log("[chat] TAVILY_API_KEY not set — answering without web search");
+  }
+
+  // 2. The instructions match what we actually have. This matters: telling a
+  //    model it has search results when it hasn't makes it invent sources.
+  const systemPrompt = buildPrompt(context);
   const problems = [];
 
-  // 1. Groq first — its quota is separate from the plant scanner's.
+  // 3. Groq answers. Its quota is separate from the plant scanner's.
   if (groqKey) {
     try {
-      const result = await callGroq(groqKey, messages);
+      const result = await callGroq(groqKey, systemPrompt, messages, !!context);
       return { statusCode: 200, body: JSON.stringify(result) };
     } catch (err) {
       problems.push("groq: " + String(err.message || err));
@@ -316,11 +344,11 @@ exports.handler = async function (event) {
     problems.push("groq: GROQ_API_KEY not set");
   }
 
-  // 2. Groq unavailable — quietly fall back to Gemini so the visitor sees a
-  //    normal reply rather than an error.
+  // 4. Groq unavailable — fall back to Gemini so the visitor sees a normal
+  //    reply rather than an error.
   if (geminiKey) {
     try {
-      const result = await callGemini(geminiKey, messages);
+      const result = await callGemini(geminiKey, systemPrompt, messages, !!context);
       return { statusCode: 200, body: JSON.stringify(result) };
     } catch (err) {
       problems.push("gemini: " + String(err.message || err));
@@ -329,8 +357,6 @@ exports.handler = async function (event) {
     problems.push("gemini: GEMINI_API_KEY not set");
   }
 
-  // 3. Both providers failed. Return the real error text — vague errors waste
-  //    hours, as the Gemini 2.5 shutdown proved.
   return {
     statusCode: 502,
     body: JSON.stringify({ error: "All AI providers failed.", detail: problems.join(" | ") }),
