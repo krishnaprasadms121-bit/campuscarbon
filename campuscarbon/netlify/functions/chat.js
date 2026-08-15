@@ -68,6 +68,9 @@ const GEMINI_MODELS = [
 
 const MAX_HISTORY = 8;   // messages sent to the AI — keeps token cost flat
 const MAX_REPLY_TOKENS = 700;
+/* Searched answers are longer — they carry findings and source names — so
+   the web-capable models get more room than the plain ones. */
+const MAX_REPLY_TOKENS_SEARCH = 1600;
 
 /* ------------------------------------------------------------------ */
 
@@ -81,34 +84,64 @@ function normalise(messages) {
     .filter((m) => m.content.trim().length > 0);
 }
 
+/* One attempt at one model. tokenParam lets us retry with the other spelling
+   of the reply-length setting: Groq deprecated "max_tokens" in favour of
+   "max_completion_tokens", and the newer models REJECT the old name outright
+   with a 400. Older ones may only know the old name. Rather than guess, we
+   try the current name and fall back to the legacy one if it is refused. */
+async function groqAttempt(apiKey, model, messages, tokenParam) {
+  const body = {
+    model: model.id,
+    messages: [{ role: "system", content: buildPrompt(model.search) }, ...messages],
+  };
+  body[tokenParam] = model.search ? MAX_REPLY_TOKENS_SEARCH : MAX_REPLY_TOKENS;
+  // Leave compound on its own defaults — it orchestrates tools internally.
+  if (!model.search) body.temperature = 0.6;
+
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 400);
+    const err = new Error(`HTTP ${res.status}: ${detail}`);
+    err.status = res.status;
+    err.detail = detail;
+    return { ok: false, error: err };
+  }
+  return { ok: true, res };
+}
+
 async function callGroq(apiKey, messages) {
   let lastError = "no models attempted";
 
   for (const model of GROQ_MODELS) {
     try {
-      const body = {
-        model: model.id,
-        messages: [{ role: "system", content: buildPrompt(model.search) }, ...messages],
-        max_tokens: MAX_REPLY_TOKENS,
-      };
-      // Leave compound on its own defaults — it orchestrates tools internally.
-      if (!model.search) body.temperature = 0.6;
+      let attempt = await groqAttempt(apiKey, model, messages, "max_completion_tokens");
 
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-      });
+      // If the reply-length parameter was the problem, retry with the old name
+      // before writing this model off. Costs one extra call, only on failure.
+      if (!attempt.ok && attempt.error.status === 400 &&
+          /max_completion_tokens|max_tokens|unsupported_parameter/i.test(attempt.error.detail)) {
+        console.log(`[chat] ${model.id}: retrying with legacy max_tokens`);
+        attempt = await groqAttempt(apiKey, model, messages, "max_tokens");
+      }
 
-      if (!res.ok) {
-        lastError = `${model.id} -> HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`;
+      if (!attempt.ok) {
+        lastError = `${model.id} -> ${attempt.error.message}`;
+        // Log the REAL reason. Vague errors waste hours — this is how the
+        // Gemini 2.5 shutdown stayed hidden for so long.
+        console.log(`[chat] SKIPPED ${lastError}`);
         // 429 = rate limited this minute. 4xx = model retired or bad request.
         // Either way try the next one, then let Gemini answer.
         continue;
       }
+      const res = attempt.res;
 
       const data = await res.json();
       const choice = (data.choices || [])[0];
@@ -121,11 +154,15 @@ async function callGroq(apiKey, messages) {
         const used = Array.isArray(tools) && tools.length
           ? " +" + tools.map((t) => t.type || t.name || "tool").join(",")
           : "";
-        return { text, via: `groq:${model.id}${used}` };
+        const via = `groq:${model.id}${used}`;
+        console.log(`[chat] ANSWERED BY ${via}`);
+        return { text, via };
       }
       lastError = `${model.id} -> empty reply`;
+      console.log(`[chat] SKIPPED ${lastError}`);
     } catch (err) {
       lastError = `${model.id} -> ${String(err)}`;
+      console.log(`[chat] SKIPPED ${lastError}`);
     }
   }
 
@@ -163,10 +200,15 @@ async function callGemini(apiKey, messages) {
       const candidate = (data.candidates || [])[0];
       const parts = candidate?.content?.parts || [];
       const text = parts.map((p) => p.text || "").join("\n").trim();
-      if (text) return { text, via: `gemini:${model}` };
+      if (text) {
+        console.log(`[chat] ANSWERED BY gemini:${model}`);
+        return { text, via: `gemini:${model}` };
+      }
       lastError = `${model} -> empty reply (finishReason: ${candidate?.finishReason || "unknown"})`;
+      console.log(`[chat] SKIPPED gemini ${lastError}`);
     } catch (err) {
       lastError = `${model} -> ${String(err)}`;
+      console.log(`[chat] SKIPPED gemini ${lastError}`);
     }
   }
 
