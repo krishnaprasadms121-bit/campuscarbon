@@ -1375,7 +1375,6 @@ const HELP_SUGGESTIONS = [
   "Plan an afforestation project for 500 trees",
   "Plan a 50kW solar project",
   "Explain photosynthesis simply",
-  "Help me write an email to my HOD",
 ];
 
 function helpHTML() {
@@ -1394,7 +1393,7 @@ function helpHTML() {
       <div style="padding:14px 18px;border-top:1px solid var(--line);background:#fff">
         <div id="chat-suggestions" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px"></div>
         <div style="display:flex;gap:8px">
-          <input type="text" id="chat-input" placeholder="Ask about carbon credits, or ask me to plan a project..." style="flex:1;border:1.5px solid var(--line);border-radius:999px;padding:11px 16px;font-size:14px;font-family:'Inter',sans-serif">
+          <input type="text" id="chat-input" placeholder="Ask me anything, or ask me to plan a project..." style="flex:1;border:1.5px solid var(--line);border-radius:999px;padding:11px 16px;font-size:14px;font-family:'Inter',sans-serif">
           <button class="btn-solid" id="chat-send">Send</button>
         </div>
       </div>
