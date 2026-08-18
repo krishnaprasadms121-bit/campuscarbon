@@ -1596,6 +1596,7 @@ let scanState = {
   height: "",
   scars: "",
   site: "",
+  scaleRef: "",
   loading: false,
   result: null,
   error: "",
@@ -1711,6 +1712,11 @@ function scanHTML() {
           <span style="font-size:11.5px;color:var(--ink-soft)">Count the rings left by fallen fronds along any one measured metre of trunk.</span>
         </div>
         <div class="field">
+          <label>Anything of known size in the photo?</label>
+          <input type="text" id="scan-scale" placeholder="e.g. A4 sheet held on the trunk" value="${esc(scanState.scaleRef)}">
+          <span style="font-size:11.5px;color:var(--ink-soft)">No tape? Put something of known size against the trunk and say what it is — an A4 sheet, a 30 cm ruler, a person's height. I can then read the size off the photo, less accurately than a tape.</span>
+        </div>
+        <div class="field">
           <label>Where is it growing?</label>
           <select id="scan-site">
             ${scanOpts("site", [["", "Not sure"], ["open", "Open ground, watered or good soil"], ["normal", "Ordinary conditions"], ["shaded", "Crowded or shaded by bigger trees"], ["poor", "Poor, rocky, sandy or dry soil"], ["pot", "In a pot or restricted space"]])}
@@ -1824,29 +1830,119 @@ function siteInfo(key) {
   return SITE_CONDITIONS[key] || SITE_CONDITIONS[""];
 }
 
-function treeMetrics(girthCm, heightM, gfLow, gfHigh) {
+/* Wood density (oven-dry mass / green volume, g/cm3) for common Indian trees,
+   from the Global Wood Density Database. Chave's equation is very sensitive to
+   this, so the common species are pinned here rather than left to the AI. */
+const WOOD_DENSITY = [
+  [/azadirachta|\bneem\b/i, 0.68],
+  [/tectona|\bteak\b/i, 0.55],
+  [/mangifera|\bmango\b/i, 0.52],
+  [/tamarindus|tamarind/i, 0.80],
+  [/samanea|albizia saman|rain tree/i, 0.48],
+  [/delonix|gulmohar/i, 0.45],
+  [/eucalyptus/i, 0.65],
+  [/casuarina/i, 0.83],
+  [/dalbergia|rosewood|sissoo/i, 0.75],
+  [/santalum|sandalwood/i, 0.90],
+  [/pongamia|millettia/i, 0.60],
+  [/syzygium|jamun/i, 0.68],
+  [/terminalia|arjuna/i, 0.74],
+  [/psidium|guava/i, 0.66],
+  [/swietenia|mahogany/i, 0.50],
+  [/polyalthia/i, 0.50],
+  [/saraca|\bashoka\b/i, 0.55],
+  [/leucaena|subabul/i, 0.60],
+  [/grevillea|silver oak/i, 0.57],
+  [/ficus|banyan|peepal/i, 0.40],
+];
+
+const DEFAULT_WOOD_DENSITY = 0.60;   // tropical hardwood average
+
+function lookupWoodDensity(id) {
+  const name = String((id && id.botanicalName) || '') + ' ' + String((id && id.commonName) || '');
+  for (const row of WOOD_DENSITY) {
+    if (row[0].test(name)) return { rho: row[1], known: true };
+  }
+  const fromAI = Number(id && id.woodDensity);
+  if (isFinite(fromAI) && fromAI > 0.1 && fromAI < 1.3) return { rho: fromAI, known: false };
+  return { rho: DEFAULT_WOOD_DENSITY, known: false };
+}
+
+/* ---------------------------------------------------------------------------
+   CARBON — Chave et al. 2014 pantropical Model 4, the standard equation for
+   tropical trees. Replaces the older US green-weight method, which was built
+   on temperate species.
+
+     AGB  = 0.0673 x (rho x D^2 x H)^0.976     kg, oven-dry, above ground
+            rho = wood density g/cm3, D = trunk diameter cm, H = height m
+     BGB  = AGB x 0.24                          roots (IPCC root:shoot, tropical)
+     C    = (AGB + BGB) x 0.47                  IPCC carbon fraction
+     CO2  = C x 3.667                           44/12, carbon -> carbon dioxide
+     O2   = CO2 x 0.727                         32/44, photosynthesis is 1:1 by
+                                                mole, so this is the mass ratio
+   --------------------------------------------------------------------------- */
+const ROOT_SHOOT = 0.24;
+const CARBON_FRACTION = 0.47;
+const C_TO_CO2 = 3.667;
+const CO2_TO_O2 = 0.727;
+
+function carbonMetrics(diameterCm, heightM, rho) {
+  const D = Number(diameterCm), H = Number(heightM), p = Number(rho);
+  if (!(D > 0) || !(H > 0) || !(p > 0)) return null;
+  // Refuse implausible inputs rather than print a spectacular wrong number.
+  if (D * Math.PI > MAX_GIRTH_CM || H > MAX_HEIGHT_M) return null;
+
+  const agb = 0.0673 * Math.pow(p * D * D * H, 0.976);
+  const bgb = agb * ROOT_SHOOT;
+  const total = agb + bgb;
+  const carbonKg = total * CARBON_FRACTION;
+  const co2Kg = carbonKg * C_TO_CO2;
+  return {
+    agbKg: agb,
+    bgbKg: bgb,
+    biomassKg: total,
+    carbonKg: carbonKg,
+    co2Kg: co2Kg,
+    o2Kg: co2Kg * CO2_TO_O2,
+  };
+}
+
+/* Plausible limits for a real tree. A typo — 99999 instead of 99.9 — used to
+   sail through and print half a million tonnes of CO2. On a carbon site that
+   is the worst possible place to print an absurd number, so anything outside
+   these bounds is refused outright rather than calculated. */
+const MIN_GIRTH_CM = 5, MAX_GIRTH_CM = 2500;      // 2500 cm ~ 8 m diameter
+const MIN_HEIGHT_M = 0.5, MAX_HEIGHT_M = 120;     // tallest trees on earth
+
+function girthLooksWrong(girthCm) {
+  const g = Number(girthCm);
+  if (!isFinite(g) || g <= 0) return "missing";
+  if (g < MIN_GIRTH_CM) return "too small";
+  if (g > MAX_GIRTH_CM) return "too big";
+  return null;
+}
+
+function heightLooksWrong(heightM) {
+  const h = Number(heightM);
+  if (!isFinite(h) || h <= 0) return "missing";
+  if (h < MIN_HEIGHT_M) return "too small";
+  if (h > MAX_HEIGHT_M) return "too big";
+  return null;
+}
+
+function treeMetrics(girthCm, heightM, gfLow, gfHigh, rho) {
   const girth = Number(girthCm);
-  if (!isFinite(girth) || girth <= 0) return null;
+  if (girthLooksWrong(girth)) return null;
 
   const diameterCm = girth / Math.PI;
   const diameterIn = diameterCm / 2.54;
-  const heightFt = Number(heightM) * 3.280839895;
 
   const lo = Number(gfLow), hi = Number(gfHigh);
   const ageLow = isFinite(lo) && lo > 0 ? lo * diameterIn : null;
   const ageHigh = isFinite(hi) && hi > 0 ? hi * diameterIn : null;
 
-  let co2Kg = null, carbonKg = null;
-  if (isFinite(heightFt) && heightFt > 0) {
-    const coefficient = diameterIn < 11 ? 0.25 : 0.15;
-    const aboveGroundLb = coefficient * diameterIn * diameterIn * heightFt;
-    const dryLb = aboveGroundLb * 1.2 * 0.725;   // + roots, - moisture
-    const carbonLb = dryLb * 0.5;                // carbon is ~half of dry mass
-    carbonKg = carbonLb * LB_TO_KG;
-    co2Kg = carbonLb * 3.6663 * LB_TO_KG;        // carbon -> carbon dioxide
-  }
-
-  return { diameterCm, ageLow, ageHigh, co2Kg, carbonKg };
+  const carbon = carbonMetrics(diameterCm, heightM, rho);
+  return { diameterCm, ageLow, ageHigh, carbon };
 }
 
 /* Palms: the trunk is a stack of leaf scars, and leaves come at a steady rate.
@@ -1907,16 +2003,21 @@ function agePanel(title, rows, footnote) {
     '</div>';
 }
 
-function treeAgeHTML(id, measured) {
+function treeAgeHTML(id, measured, scene) {
   id = id || {};
   measured = measured || {};
+  scene = scene || {};
   const girth = Number(measured.girthCm) || null;
   const heightM = Number(measured.heightM) || null;
   const scars = Number(measured.scarsPerMetre) || null;
   const site = siteInfo(measured.site);
   const method = id.agingMethod || (id.girthAgingValid === false ? "none" : "girth");
 
-  if (!girth && !heightM) return "";   // nothing measured, nothing to show
+  // Show the panel if the user measured something OR the AI could read
+  // dimensions off the photograph. Nothing at all means no panel.
+  const photoDims = id.dimensions || {};
+  const havePhotoSize = Number(photoDims.trunkDiameterCm) > 0 || Number(photoDims.heightM) > 0;
+  if (!girth && !heightM && !havePhotoSize) return "";
 
   const row = (label, val) =>
     '<div class="scan-row"><span>' + label + '</span><b>' + esc(String(val)) + '</b></div>';
@@ -1963,59 +2064,103 @@ function treeAgeHTML(id, measured) {
   }
 
   /* ---- Method 1: ordinary trees, by girth ---- */
-  if (!girth) return "";
+  const dims = id.dimensions || {};
+  // A tape beats the photo every time. Fall back to what the AI read off the
+  // image only when nothing was measured, and say clearly which was used.
+  const girthUsed = girth || (Number(dims.trunkDiameterCm) > 0 ? Number(dims.trunkDiameterCm) * Math.PI : null);
+  const heightUsed = heightM || Number(dims.heightM) || Number(id.typicalHeightM) || null;
+  if (!girthUsed) return "";
+
+  const girthProblem = girthLooksWrong(girthUsed);
+  const heightProblem = heightUsed ? heightLooksWrong(heightUsed) : null;
+  if (girthProblem === "too big" || girthProblem === "too small" ||
+      heightProblem === "too big" || heightProblem === "too small") {
+    const what = (girthProblem === "too big" || girthProblem === "too small") ? "girth" : "height";
+    return '<div class="panel" style="margin-top:16px;border-left:4px solid #b3261e">' +
+      '<div class="scan-idhead"><h3 style="margin:0;font-size:15px;color:#b3261e">That measurement does not look right</h3></div>' +
+      '<p style="font-size:13.5px;line-height:1.65;margin:10px 0 0">The ' + what +
+      ' you entered is outside anything a real tree reaches, so I have not calculated an age or a CO<sub>2</sub> figure from it. ' +
+      'Girth should be between ' + MIN_GIRTH_CM + ' and ' + MAX_GIRTH_CM + ' cm, and height between ' +
+      MIN_HEIGHT_M + ' and ' + MAX_HEIGHT_M + ' m. Check the decimal point — 99.5 cm and 9950 cm are easy to confuse.</p></div>';
+  }
+
   const gf = lookupGrowthFactor(id);
-  const usableHeight = heightM || Number(id.typicalHeightM) || null;
-  const m = treeMetrics(girth, usableHeight, gf.low, gf.high);
+  const wd = lookupWoodDensity(id);
+  const m = treeMetrics(girthUsed, heightUsed, gf.low, gf.high, wd.rho);
   if (!m) return "";
 
-  // Apply the growing conditions. A suppressed tree is older than its girth
-  // suggests; a pampered one is younger.
   let lowAge = m.ageLow, highAge = m.ageHigh;
-  if (lowAge && highAge && site.mult !== 1) {
-    lowAge *= site.mult;
-    highAge *= site.mult;
-  }
-  // If the bark and form look older than the thickness does, widen upward
-  // rather than report a falsely young number.
+  if (lowAge && highAge && site.mult !== 1) { lowAge *= site.mult; highAge *= site.mult; }
   if (id.looksOlderThanGirth === true && highAge) highAge *= 1.5;
-
   const range = ageRangeText(lowAge, highAge);
-  const estimatedHeight = !heightM && usableHeight;
+
+  const measuredGirth = !!girth;
+  const measuredHeight = !!heightM;
+  const src = String(dims.source || "").toLowerCase();
+  const photoSourceWord =
+    src.indexOf("scale") !== -1 ? "estimated from the scale object in your photo"
+    : src.indexOf("rough") !== -1 ? "rough visual estimate from the photo"
+    : "estimated from the photo";
+  const tag = (wasMeasured) => wasMeasured
+    ? ' <span style="color:var(--ink-soft);font-weight:400">(measured)</span>'
+    : ' <span style="color:#b8860b;font-weight:400">(' + photoSourceWord + ')</span>';
+
+  const c = m.carbon;
+  const midAge = (lowAge && highAge) ? (lowAge + highAge) / 2 : null;
 
   let rows =
-    row("Trunk girth measured", Math.round(girth) + " cm") +
-    row("Trunk diameter", m.diameterCm.toFixed(1) + " cm") +
-    (usableHeight ? row("Height used", Number(usableHeight).toFixed(1) + " m" + (estimatedHeight ? " (estimated)" : "")) : "") +
-    row("Estimated age", range || "not enough species data") +
-    (site.label ? row("Growing conditions", site.label) : "") +
-    (m.co2Kg !== null ? row("CO2 stored so far", fmtKg(m.co2Kg)) : "") +
-    (m.carbonKg !== null ? row("Carbon held in the wood", fmtKg(m.carbonKg)) : "");
+    '<div class="scan-row"><span>Trunk diameter</span><b>' + m.diameterCm.toFixed(1) + " cm" + tag(measuredGirth) + '</b></div>' +
+    (heightUsed ? '<div class="scan-row"><span>Height</span><b>' + Number(heightUsed).toFixed(1) + " m" + tag(measuredHeight) + '</b></div>' : "") +
+    (Number(dims.canopyWidthM) > 0 ? '<div class="scan-row"><span>Canopy width</span><b>' + Number(dims.canopyWidthM).toFixed(1) + " m" + tag(false) + '</b></div>' : "") +
+    (Number(dims.largestBranchCm) > 0 ? '<div class="scan-row"><span>Largest branch</span><b>' + Number(dims.largestBranchCm).toFixed(0) + " cm thick" + tag(false) + '</b></div>' : "") +
+    '<div class="scan-row"><span>Estimated age</span><b>' + esc(range || "not enough species data") + '</b></div>' +
+    (site.label ? '<div class="scan-row"><span>Growing conditions</span><b>' + esc(site.label) + '</b></div>' : "");
+
+  if (c) {
+    rows +=
+      '<div style="height:14px"></div>' +
+      '<div class="scan-row"><span>Wood density used</span><b>' + wd.rho.toFixed(2) + " g/cm<sup>3</sup>" +
+        (wd.known ? "" : ' <span style="color:#b8860b;font-weight:400">(default)</span>') + '</b></div>' +
+      '<div class="scan-row"><span>Biomass, above ground</span><b>' + fmtKg(c.agbKg) + '</b></div>' +
+      '<div class="scan-row"><span>Biomass, roots</span><b>' + fmtKg(c.bgbKg) + '</b></div>' +
+      '<div class="scan-row"><span>Carbon stored</span><b>' + fmtKg(c.carbonKg) + '</b></div>' +
+      '<div class="scan-row"><span>CO<sub>2</sub> absorbed so far</span><b>' + fmtKg(c.co2Kg) + '</b></div>' +
+      '<div class="scan-row"><span>Oxygen released while growing</span><b>' + fmtKg(c.o2Kg) + '</b></div>' +
+      (midAge && midAge > 0
+        ? '<div class="scan-row"><span>Average CO<sub>2</sub> per year</span><b>' + fmtKg(c.co2Kg / midAge) + " / year" + '</b></div>'
+        : "");
+  }
 
   let foot =
-    'Age is estimated as growth factor x trunk diameter, the standard arborist method. ' +
-    (gf.known
-      ? 'A growth factor for this species is built into the site. '
-      : 'This species is not in the built-in table, so the factor came from the AI and is less reliable. ') +
-    'Growth factors are far better documented for temperate species than Indian ones. ' +
-    'Only counting the rings of a felled trunk gives a true age, and even that is unreliable in the tropics, ' +
-    'where rings follow wet and dry spells rather than years.';
+    '<b>How the age is worked out:</b> growth factor x trunk diameter in inches, the standard arborist method. ' +
+    (gf.known ? 'A tropical growth factor for this species is built into the site. '
+              : 'This species is not in the built-in table, so the factor came from the AI and is less reliable. ') +
+    'Only counting the rings of a felled trunk gives a true age, and even that is unreliable in the tropics, where rings follow wet and dry spells rather than years.' +
+    '<br><br><b>How the carbon is worked out:</b> Chave et al. 2014 pantropical equation, ' +
+    'AGB = 0.0673 x (density x diameter&sup2; x height)<sup>0.976</sup>, plus 24% for roots, ' +
+    'times 0.47 for carbon content, times 3.667 for CO<sub>2</sub>. Oxygen is CO<sub>2</sub> x 0.727, ' +
+    'the mass ratio from photosynthesis releasing one molecule of O<sub>2</sub> per molecule of CO<sub>2</sub> fixed. ' +
+    'These are totals accumulated over the tree&rsquo;s whole life, not a yearly rate — the per-year figure is simply the total divided by the estimated age, so it inherits the age&rsquo;s uncertainty.';
 
-  if (id.looksOlderThanGirth === true) {
-    foot += ' <b>Note:</b> ' + esc(id.olderThanGirthNote ||
-      'the bark and form look older than the trunk thickness suggests, so this tree may have been growing slowly in shade or poor soil. The upper end of the range has been widened.');
+  if (!measuredGirth) {
+    foot += ' <b>Nothing was measured with a tape</b>, so the trunk diameter came from the photograph. A photo has no built-in scale, so this is the weakest part of the estimate. Measuring the girth with a tape would improve every number above.';
+  }
+  if (scene.climberOnTrunk === true) {
+    foot += ' <b>Warning:</b> a creeper is wrapped around this trunk, so the girth almost certainly includes the creeper as well as the tree. Every figure above is therefore too high. Measure again at a clear stretch of trunk.';
   }
   if (measured.site === "pot") {
     foot += ' <b>This plant is pot-restricted</b>, so its growth was deliberately limited. Age from thickness is very unreliable here and could be out by decades.';
   }
   if (!measured.site) {
-    foot += ' You did not say what conditions it grows in. Answering that question makes this estimate noticeably better, because a shaded or starved tree is much older than its thickness suggests.';
+    foot += ' You did not say what conditions it grows in. Answering that question noticeably improves the age, because a shaded or starved tree is much older than its thickness suggests.';
   }
-  if (m.co2Kg !== null) {
-    foot += ' CO<sub>2</sub> is calculated from girth and height by the standard green-weight method (roots included, 50% of dry mass as carbon, x 3.6663). It describes carbon already stored in this one tree. It is <b>not</b> a carbon credit and cannot be traded — credits require verified, additional projects under CCTS.';
+  if (id.looksOlderThanGirth === true) {
+    foot += ' <b>Note:</b> ' + esc(id.olderThanGirthNote ||
+      'the bark and form look older than the trunk thickness suggests, so this tree may have been growing slowly. The upper end of the age range has been widened.');
   }
+  foot += ' The CO<sub>2</sub> figure describes carbon already stored in this one tree. It is <b>not</b> a carbon credit and cannot be traded — credits require verified, additional projects under CCTS.';
 
-  return agePanel("Age &amp; stored CO<sub>2</sub>", rows, foot);
+  return agePanel("Size, age, carbon &amp; oxygen", rows, foot);
 }
 
 function confidencePill(level) {
@@ -2031,6 +2176,102 @@ function localNameRow(lang, val) {
   return `<div class="scan-row"><span>${lang} name</span><b${
     none ? ' style="font-weight:400;color:var(--ink-soft)"' : ""
   }>${esc(none ? "No established " + lang + " name" : val)}</b></div>`;
+}
+
+/* Artificial, dead, or a photo of a photo. Offices and malls are full of very
+   convincing plastic plants, and identifying one as a real monstera and then
+   advising how to water it would be an embarrassing failure. This banner runs
+   above everything else, and care advice is suppressed when it fires. */
+function livingStatusHTML(r) {
+  const status = String(r.livingStatus || "living").toLowerCase();
+  if (status === "living" || !status) return "";
+
+  const conf = String(r.artificialConfidence || "").toLowerCase();
+  const signs = r.artificialSigns || "";
+
+  const copy = {
+    artificial: {
+      title: "This looks like an artificial plant",
+      body: "Plastic, silk or fabric — not a living plant. Nothing here stores carbon, and it needs no care.",
+      colour: "#b3261e",
+    },
+    "dead or dried": {
+      title: "This looks like dead or dried plant material",
+      body: "Real plant material, but no longer alive and no longer absorbing CO<sub>2</sub>. Care advice will not help it.",
+      colour: "#8a6d3b",
+    },
+    "picture of a picture": {
+      title: "This looks like a photo of a picture, not of a plant",
+      body: "It appears to be a screen, poster, painting or printed image. Photograph the real plant for a proper result.",
+      colour: "#8a6d3b",
+    },
+  };
+  const c = copy[status] || copy.artificial;
+
+  const certainty =
+    conf === "high" ? "I am fairly confident of this."
+    : conf === "low" ? "I am NOT confident — a good silk plant can be impossible to tell from a real one in a photo. Touch a leaf, or look closely at the stem base, to be sure."
+    : "I am reasonably but not completely confident.";
+
+  return '<div class="panel" style="border-left:4px solid ' + c.colour + '">' +
+    '<div class="scan-idhead"><h3 style="margin:0;font-size:15px;color:' + c.colour + '">' + c.title + '</h3></div>' +
+    '<p style="font-size:13.5px;line-height:1.65;margin:10px 0 0">' + c.body + '</p>' +
+    (signs ? '<p style="font-size:13px;color:var(--ink-soft);line-height:1.65;margin:10px 0 0"><b>What I can see:</b> ' + esc(signs) + '</p>' : "") +
+    '<p style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin:10px 0 0">' + certainty + '</p>' +
+    '<p style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin:10px 0 0">' +
+    'Identification below is of the species this <i>resembles</i>. Health and care advice has been left out, because it would not apply.</p>' +
+    '</div>';
+}
+
+/* More than one plant tangled in the photo. A creeper on a neem, mistletoe in
+   the canopy, two trunks grown together. Two separate problems: the AI may
+   describe the wrong plant, and a tape measure around the trunk will have
+   included any creeper wrapped around it — which inflates girth, age and CO2
+   all at once. Both are called out rather than silently absorbed. */
+function sceneHTML(r, measured) {
+  const sc = r.scene || {};
+  const list = Array.isArray(sc.plants) ? sc.plants.filter(function (p) { return p && p.name; }) : [];
+  const girthTaken = measured && Number(measured.girthCm) > 0;
+  const showGirthWarning = sc.climberOnTrunk === true && girthTaken;
+
+  if (!sc.multiplePlants && !showGirthWarning) return "";
+
+  const roleColour = {
+    "main subject": "#1a7f4b",
+    "climber on it": "#b8860b",
+    "neighbouring plant": "#6b7280",
+    epiphyte: "#6b7280",
+    parasite: "#b3261e",
+  };
+
+  const items = list.map(function (p) {
+    const c = roleColour[String(p.role || "").toLowerCase()] || "#6b7280";
+    return '<div style="margin-bottom:10px">' +
+      '<b style="font-size:13.5px">' + esc(p.name) + '</b> ' +
+      '<span class="scan-pill" style="background:' + c + '15;color:' + c + ';border-color:' + c + '40">' +
+      esc(p.role || "seen in photo") + '</span>' +
+      (p.note ? '<p style="margin:3px 0 0;font-size:13px;color:var(--ink-soft);line-height:1.6">' + esc(p.note) + '</p>' : "") +
+      '</div>';
+  }).join("");
+
+  const hasParasite = list.some(function (p) { return String(p.role || "").toLowerCase() === "parasite"; });
+
+  return '<div class="panel" style="border-left:4px solid ' + (hasParasite ? "#b3261e" : "#b8860b") + '">' +
+    '<div class="scan-idhead"><h3 style="margin:0;font-size:15px">More than one plant in this photo</h3></div>' +
+    (sc.whichIsMain
+      ? '<p style="font-size:13.5px;line-height:1.65;margin:10px 0 14px">' + esc(sc.whichIsMain) + '</p>'
+      : '<p style="font-size:13.5px;line-height:1.65;margin:10px 0 14px">Several plants are growing together here. The description below is of the main one — check that it is the one you meant.</p>') +
+    items +
+    (showGirthWarning
+      ? '<p class="note-banner" style="margin-top:14px;border-color:#b3261e60;background:#fff5f5">' +
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
+        '<span><b>Your girth measurement is probably too big.</b> ' +
+        esc(sc.girthWarning || "A creeper is wrapped around the trunk, so the tape went around the tree and the creeper together. The age and stored CO2 below will both come out higher than they really are. Measure again at a clear stretch of trunk.") +
+        '</span></p>'
+      : "") +
+    '<p style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin:14px 0 0">' +
+    'If I described the wrong plant, photograph just the one you mean — a single leaf held against a plain background works best.</p>' +
+    '</div>';
 }
 
 function scanResultHTML(r) {
@@ -2051,7 +2292,11 @@ function scanResultHTML(r) {
   const statusColor =
     he.status === "healthy" ? "#1a7f4b" : he.status === "problem detected" ? "#b3261e" : "#6b7280";
 
+  const notLiving = String(r.livingStatus || "living").toLowerCase() !== "living";
+
   return `
+    ${livingStatusHTML(r)}
+    ${notLiving ? "" : sceneHTML(r, r.measured || {})}
     <div class="panel">
       <div class="scan-idhead">
         <div>
@@ -2067,7 +2312,7 @@ function scanResultHTML(r) {
       ${ab.description ? `<p style="font-size:13.5px;line-height:1.65;margin:14px 0 0">${esc(ab.description)}</p>` : ""}
     </div>
 
-    ${treeAgeHTML(id, r.measured || {})}
+    ${notLiving ? "" : treeAgeHTML(id, r.measured || {}, r.scene || {})}
 
     ${
       alts.length
@@ -2102,6 +2347,7 @@ function scanResultHTML(r) {
       }
     </div>
 
+    ${notLiving ? "" : `
     <div class="panel">
       <div class="scan-idhead">
         <h3 style="margin:0;font-size:15px">Health check</h3>
@@ -2146,7 +2392,8 @@ function scanResultHTML(r) {
       <p style="font-size:13px;line-height:1.6;margin:10px 0 0;color:var(--ink-soft)">Never spray anything based on a phone app alone. Confirm with your local agriculture extension officer or Krishi Vigyan Kendra first.</p>
     </div>`
         : ""
-    }`;
+    }
+    `}`;
 }
 
 /* Shrink the photo before upload — keeps it fast and cheap */
@@ -2261,6 +2508,8 @@ function runScan() {
   if (heightEl) scanState.height = heightEl.value;
   const scarsEl = document.getElementById("scan-scars");
   if (scarsEl) scanState.scars = scarsEl.value;
+  const scaleEl = document.getElementById("scan-scale");
+  if (scaleEl) scanState.scaleRef = scaleEl.value;
 
   const images = SCAN_SLOTS.filter(function (s) {
     return scanState.photos[s.key];
@@ -2300,6 +2549,7 @@ function runScan() {
       heightM: scanState.height ? Number(scanState.height) : null,
       scarsPerMetre: scanState.scars ? Number(scanState.scars) : null,
       site: scanState.site,
+      scaleRef: scanState.scaleRef,
     }),
   })
     .then(function (res) {

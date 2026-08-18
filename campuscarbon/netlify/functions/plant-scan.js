@@ -25,11 +25,135 @@ REGIONAL NAMES
 - Many exotic and ornamental species genuinely have no Tamil or Hindi name. Say so rather than translating the English name.
 - Put any other regional names (Telugu, Malayalam, Kannada, Sanskrit, Bengali) in otherLocalNames, or leave it empty.
 
+IS IT EVEN A REAL, LIVING PLANT? — check this FIRST, before anything else
+Artificial plants are extremely convincing in photographs, and offices,
+hotels, malls and even campuses are full of them. Identifying a plastic
+monstera as a monstera and then advising the user how to water it would be
+an embarrassing failure. Judge this before you identify anything.
+
+Set livingStatus to one of:
+  "living"              a real plant, growing
+  "artificial"          plastic, silk, fabric, paper or otherwise man-made
+  "dead or dried"       real plant material but no longer alive — dried
+                        arrangements, preserved stems, cut flowers well past
+                        their life, a dead standing tree
+  "picture of a picture" a photograph of a screen, poster, painting,
+                        illustration or printed image of a plant
+
+SIGNS OF A REAL LIVING PLANT
+- Leaves differ from one another: different sizes, angles, slight asymmetry
+- Imperfection somewhere — a nibbled edge, a brown tip, a spot, a tear,
+  yellowing on an older leaf, uneven colour
+- New growth: smaller pale leaves at the tips, unopened buds, a growing point
+- Veins vary in thickness and are slightly irregular
+- Stems taper naturally and leaves join them at believable points
+- Backlit leaves look slightly translucent, with visible vein shadow
+
+SIGNS OF AN ARTIFICIAL PLANT
+- The same leaf repeated: identical shape and size several times over
+- Flawless condition — no damage, no spots, no yellowing, nothing eaten
+- Uniform flat colour with no gradient from old leaf to new leaf
+- A moulding seam or ridge running along a leaf edge, or a stamped vein
+  pattern that repeats exactly
+- Fabric weave, fraying, or a stitched edge on the leaf
+- Wire visible inside a bent stem, or a stem that bends without tapering
+- Plastic sheen, or an unnaturally even matte finish
+- Perfect symmetry, or leaves spaced too regularly around the stem
+- A base of glued gravel, foam, moss mat or cement rather than real soil
+- Dust sitting in a flat even layer on upper surfaces
+- No growing tip anywhere, and every leaf the same mature size
+
+artificialConfidence — be honest. "high" only when you can point to a clear
+physical sign such as a seam, wire, fabric edge or repeated identical leaves.
+A good silk plant in a small or blurry photograph genuinely cannot be told
+from a real one, and in that case say "low" and explain what would settle it.
+
+artificialSigns — one or two plain sentences naming what you ACTUALLY SEE in
+this photo that led to your judgement. Never a generic statement. Good:
+"Every leaf is exactly the same shape and size, and there is a moulding seam
+along the edge of the front leaf." Leave empty when livingStatus is "living".
+
+When livingStatus is anything other than "living", still fill in the
+identification if you can tell which species it imitates or once was, but do
+NOT give health advice, care advice or a diagnosis. Leave problems empty.
+
+MORE THAN ONE PLANT IN THE PHOTO — check this before identifying
+Very often a photograph contains several plants tangled together and the
+user only means one of them. A creeper climbing a neem, two trees grown
+into each other, a fern lodged in a fork, mistletoe in the canopy. Naming
+the creeper's leaves as the tree's is one of the easiest mistakes to make.
+
+Fill in the "scene" object:
+- multiplePlants: true if more than one distinct species is visible and
+  entangled with the subject. Not for unrelated background greenery.
+- plants: one entry per species you can see, each with a role:
+    "main subject"       the plant the user most likely means — usually the
+                         largest, most central, the one with a trunk
+    "climber on it"      a vine or creeper growing up or around it
+    "neighbouring plant" a separate plant merely touching or overlapping
+    "epiphyte"           something perched on it but not feeding from it,
+                         such as a fern, orchid or moss — usually harmless
+    "parasite"           feeding on the tree. In India the common one is
+                         Loranthus / Dendrophthoe (Indian mistletoe), a
+                         clump of thick leathery leaves in the canopy that
+                         look nothing like the host's leaves. Flag it — it
+                         genuinely harms the tree and people mistake it for
+                         part of the tree.
+  Add a short note where useful.
+- whichIsMain: one sentence saying which plant you treated as the subject
+  and why, so the user can correct you. Example: "I have described the
+  large tree with the rough grey bark; the heart-shaped leaves on the
+  trunk belong to a money plant climbing it."
+
+- climberOnTrunk: true when a vine, creeper or aerial root is wrapped
+  around the trunk at roughly chest height, where girth is measured.
+- girthWarning: when climberOnTrunk is true, warn plainly that a tape
+  around the trunk will have included the creeper, so the girth is too
+  big and the age and stored CO2 will both come out too high. Tell them to
+  measure at a clear stretch of trunk, or to remove the creeper first.
+
+IMPORTANT ON CLIMBERS: do not assume a climber is a problem. Pepper and
+betel vines are grown on areca and other trees on purpose in South India,
+and that is normal agriculture, not damage. Only call a climber harmful
+when it is smothering the canopy, strangling the trunk, or is a true
+parasite. Say which it is.
+
+SIZE FROM THE PHOTOGRAPH — fill in "dimensions"
+A photograph has NO built-in scale. The same tree close up and far away look
+identical. So estimate size only as follows, and be honest about which:
+
+- If the user names an object of known size in the photo (an A4 sheet is
+  29.7 x 21 cm, a standard brick 19 cm long, a 30 cm ruler, a person of a
+  stated height, a one-rupee coin 21.9 mm across), use it as a ruler and set
+  source to "estimated from scale reference". Confidence may be "medium".
+- With no scale object, you may still give a rough visual estimate from
+  familiar cues — storeys of a building, a doorway, a parked car, a person of
+  ordinary height. Set source to "rough visual estimate" and confidence "low".
+  Never present this as reliable.
+- Set any figure you genuinely cannot judge to 0. A zero is honest; a
+  confident wrong number is not.
+
+Fill in heightM (whole tree, ground to top), canopyWidthM (widest spread of
+the crown), trunkDiameterCm (across the trunk at chest height, NOT the
+circumference), and largestBranchCm (thickness of the thickest visible
+branch). Add one sentence in note saying what you used as the reference.
+
+The site always prefers a tape measurement over your estimate when it has
+one, so give your best judgement and let it decide.
+
+woodDensity — the wood density of this species in g/cm3, oven-dry mass over
+green volume, as used in allometric biomass equations. Typical tropical
+hardwoods are 0.45 to 0.90. Set 0 if you do not know it for this species;
+the site then uses a documented default rather than your guess.
+
 AGE ESTIMATION — pick the right method for what this plant actually is
 The site does all the arithmetic itself and prints everything as an
 approximate range. Do NOT state an age, a year, or a CO2 figure yourself.
 Your only job is to choose the method and supply the species facts below.
 Fill these in whether or not the user measured anything.
+
+If livingStatus is not "living", set agingMethod to "none" and explain in
+girthAgingNote — an artificial plant has no age and stores no carbon.
 
 agingMethod — choose exactly one:
   "girth"  Ordinary dicot trees with a single woody trunk: neem, mango, teak,
@@ -106,6 +230,16 @@ Reply with ONLY a JSON object. No markdown, no backticks, no text before or afte
 
 {
   "isPlant": true,
+  "livingStatus": "living | artificial | dead or dried | picture of a picture",
+  "artificialConfidence": "high | medium | low",
+  "artificialSigns": "",
+  "scene": {
+    "multiplePlants": false,
+    "plants": [{ "name": "", "role": "main subject | climber on it | neighbouring plant | epiphyte | parasite", "note": "" }],
+    "climberOnTrunk": false,
+    "girthWarning": "",
+    "whichIsMain": ""
+  },
   "imageQuality": "good | fair | poor",
   "identification": {
     "commonName": "",
@@ -121,6 +255,16 @@ Reply with ONLY a JSON object. No markdown, no backticks, no text before or afte
     "growthFactorLow": 0,
     "growthFactorHigh": 0,
     "typicalHeightM": 0,
+    "woodDensity": 0,
+    "dimensions": {
+      "source": "estimated from scale reference | rough visual estimate",
+      "heightM": 0,
+      "canopyWidthM": 0,
+      "trunkDiameterCm": 0,
+      "largestBranchCm": 0,
+      "confidence": "high | medium | low",
+      "note": ""
+    },
     "palmLeavesPerYear": 0,
     "palmPreTrunkYears": 0,
     "looksOlderThanGirth": false,
@@ -206,6 +350,9 @@ exports.handler = async function (event) {
   }
   if (payload.heightM) lines.push(`Height measured by the user: ${payload.heightM} m (for a palm this is trunk height only)`);
   if (payload.scarsPerMetre) lines.push(`Leaf scar rings counted in one metre of trunk: ${payload.scarsPerMetre}. This is a palm measurement — set agingMethod to "palm" if that is what this is.`);
+  if (payload.scaleRef) {
+    lines.push(`The user says this object of known size is visible in the photo: ${payload.scaleRef}. Use it as a ruler to estimate the dimensions, and set dimensions.source to "estimated from scale reference".`);
+  }
   if (payload.site) {
     const siteWords = {
       open: "open ground, watered or good soil",
