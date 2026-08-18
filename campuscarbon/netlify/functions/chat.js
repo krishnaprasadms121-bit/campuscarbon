@@ -47,6 +47,8 @@ const NO_SEARCH = `You have no live internet access, so you cannot look up today
 function searchNote(context) {
   return `Live web search results are provided below. They were fetched moments ago, so they are more current than your own training. Use them as the basis for your answer and name the source (site or URL) you relied on. If they do not actually answer the question, say so rather than guessing.
 
+Weigh the sources rather than trusting whichever appears first. For anything about government policy, rules, schemes or official figures, prefer a .gov.in or .nic.in source, then a recognised news outlet or Wikipedia, and treat tutoring, coaching and content-farm sites as weak. If your best available source for a factual or policy claim is a weak one, say which site it came from so the reader can judge it.
+
 --- WEB SEARCH RESULTS ---
 ${context}
 --- END OF RESULTS ---`;

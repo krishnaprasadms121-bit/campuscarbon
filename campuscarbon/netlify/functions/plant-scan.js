@@ -25,6 +25,72 @@ REGIONAL NAMES
 - Many exotic and ornamental species genuinely have no Tamil or Hindi name. Say so rather than translating the English name.
 - Put any other regional names (Telugu, Malayalam, Kannada, Sanskrit, Bengali) in otherLocalNames, or leave it empty.
 
+AGE ESTIMATION — pick the right method for what this plant actually is
+The site does all the arithmetic itself and prints everything as an
+approximate range. Do NOT state an age, a year, or a CO2 figure yourself.
+Your only job is to choose the method and supply the species facts below.
+Fill these in whether or not the user measured anything.
+
+agingMethod — choose exactly one:
+  "girth"  Ordinary dicot trees with a single woody trunk: neem, mango, teak,
+           tamarind, jamun, gulmohar, rain tree, casuarina, ashoka, pongamia,
+           arjuna, mahogany, rosewood, sandalwood, guava, eucalyptus. These
+           add a ring of wood every year, so thickness tracks age.
+  "palm"   ALL palms: coconut, areca/betel nut, palmyra, date, oil palm, royal
+           palm, fishtail palm. Palms are monocots with no cambium — the trunk
+           does NOT thicken with age, so girth is meaningless. Their age comes
+           from trunk height and the scar rings left by fallen fronds.
+  "none"   Banana and plantain (a pseudostem, not a trunk, and the plant dies
+           after fruiting). Bamboo (a culm reaches full width in one season).
+           Banyan, peepal or any Ficus whose aerial roots have fused into
+           multiple merged trunks — though a YOUNG one with a single clean
+           trunk may use "girth". Also all herbs, shrubs, climbers, succulents,
+           cycads, tree ferns, and anything growing in a pot as a bonsai.
+
+girthAgingNote — only when agingMethod is "none". One plain sentence a
+  non-botanist understands, saying why this plant cannot be aged from outside.
+  Example: "A banana plant has no woody trunk at all — what looks like one is
+  a roll of leaf bases, and the whole plant dies after it fruits."
+
+For agingMethod "girth":
+- growthFactorLow / growthFactorHigh: the range for age = factor x trunk
+  diameter in inches. IMPORTANT: published arborist factors come from slow
+  temperate species and are far too high for India. Use tropical values:
+    1.0 to 2.0  fast — neem, gulmohar, rain tree, eucalyptus, subabul,
+                casuarina, silver oak, ashoka
+    2.0 to 3.5  moderate — mango, jamun, tamarind, Indian almond, guava,
+                pongamia, arjuna, mahogany
+    3.0 to 5.0  slow dense hardwood — teak, sandalwood, rosewood, ironwood
+  Always a range, never one value. Set both to 0 if you do not know the
+  species well enough — no age is better than a wrong age.
+- typicalHeightM: height in metres expected for a healthy tree of this species
+  at the trunk thickness visible in the photo. Used only if the user did not
+  measure height. 0 if you cannot judge.
+
+For agingMethod "palm":
+- palmLeavesPerYear: fronds produced per year. Coconut in India is 12 to 14;
+  use 13 unless the species clearly differs. Areca is around 5 to 6.
+- palmPreTrunkYears: years as a sapling before any trunk starts forming.
+  Tall coconut varieties 4 to 6, dwarf varieties 3 to 4, areca about 3 to 4.
+
+OLD BUT SMALL — look at this carefully, it is the biggest weakness
+A tree starved of light, water or soil grows very slowly. It can be fifty
+years old with the thickness of a twelve-year-old, and the girth method will
+badly underestimate it. The photograph often shows this even though the tape
+measure cannot.
+
+- looksOlderThanGirth: true when the bark and form look distinctly older than
+  the trunk thickness suggests. The signs are deeply furrowed, plated, flaking
+  or gnarled bark; heavy lichen or moss; dead branch stubs; a twisted or
+  leaning form; and a flat or rounded crown that has stopped sending up new
+  leaders. A young fast-grown tree instead has smooth, thin, tight bark and a
+  crown still reaching upward. Set false if the bark is smooth or you cannot
+  see bark clearly in any photo — do not guess.
+- olderThanGirthNote: when true, one sentence naming what you actually see.
+  Example: "The bark is deeply furrowed and carries heavy lichen, which does
+  not match such a thin trunk — this tree has probably been growing slowly in
+  shade or poor soil."
+
 HOW TO DIAGNOSE
 - Only report a problem you can actually SEE evidence of in the photo. Never invent symptoms.
 - Use the user's answers. Spreading to nearby plants suggests something infectious. Not spreading suggests nutrient, water, or soil issues. Sudden onset suggests shock or pests; slow onset suggests deficiency.
@@ -49,7 +115,16 @@ Reply with ONLY a JSON object. No markdown, no backticks, no text before or afte
     "otherLocalNames": "",
     "family": "",
     "confidence": "high | medium | low",
-    "alternatives": [{ "name": "", "howToTellApart": "" }]
+    "alternatives": [{ "name": "", "howToTellApart": "" }],
+    "agingMethod": "girth | palm | none",
+    "girthAgingNote": "",
+    "growthFactorLow": 0,
+    "growthFactorHigh": 0,
+    "typicalHeightM": 0,
+    "palmLeavesPerYear": 0,
+    "palmPreTrunkYears": 0,
+    "looksOlderThanGirth": false,
+    "olderThanGirthNote": ""
   },
   "about": {
     "description": "",
@@ -121,6 +196,26 @@ exports.handler = async function (event) {
   if (payload.duration) lines.push(`How long the plant has looked like this: ${payload.duration}`);
   if (payload.watering) lines.push(`Watering frequency: ${payload.watering}`);
   if (payload.spreading) lines.push(`Are nearby plants also affected: ${payload.spreading}`);
+  if (payload.girthCm) {
+    lines.push(
+      `Trunk girth measured at chest height: ${payload.girthCm} cm ` +
+      `(trunk diameter about ${(payload.girthCm / Math.PI).toFixed(1)} cm). ` +
+      `Fill in agingMethod and the matching species fields. ` +
+      `Do not state an age or a CO2 figure yourself — the site calculates those.`
+    );
+  }
+  if (payload.heightM) lines.push(`Height measured by the user: ${payload.heightM} m (for a palm this is trunk height only)`);
+  if (payload.scarsPerMetre) lines.push(`Leaf scar rings counted in one metre of trunk: ${payload.scarsPerMetre}. This is a palm measurement — set agingMethod to "palm" if that is what this is.`);
+  if (payload.site) {
+    const siteWords = {
+      open: "open ground, watered or good soil",
+      normal: "ordinary conditions",
+      shaded: "crowded or shaded by bigger trees",
+      poor: "poor, rocky, sandy or dry soil",
+      pot: "in a pot or restricted space",
+    };
+    lines.push(`Growing conditions reported by the user: ${siteWords[payload.site] || payload.site}. The site adjusts the age for this itself — do not adjust it yourself.`);
+  }
   if (payload.notes) lines.push(`Extra notes from user: ${String(payload.notes).slice(0, 300)}`);
 
   const contextText =

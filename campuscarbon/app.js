@@ -1592,6 +1592,10 @@ let scanState = {
   watering: "",
   spreading: "",
   notes: "",
+  girth: "",
+  height: "",
+  scars: "",
+  site: "",
   loading: false,
   result: null,
   error: "",
@@ -1683,6 +1687,40 @@ function scanHTML() {
           <input type="text" id="scan-notes" placeholder="e.g. recently transplanted" value="${esc(scanState.notes)}">
         </div>
       </div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 4px;font-size:15px">4. Measure it <span style="font-weight:400;color:var(--ink-soft)">(optional — gives an approximate age)</span></h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin:0 0 16px">
+        Fill in whatever you can and I will pick the right method. Leave it all blank for shrubs and potted plants. Any age I give is an <b>approximate range, not an exact figure</b>.
+      </p>
+      <div class="field-grid">
+        <div class="field">
+          <label>Trunk girth at chest height (cm)</label>
+          <input type="number" inputmode="decimal" min="1" max="2000" id="scan-girth" placeholder="e.g. 95" value="${esc(scanState.girth)}">
+          <span style="font-size:11.5px;color:var(--ink-soft)">Ordinary trees. Tape all the way <i>around</i> the trunk, about 1.4 m up.</span>
+        </div>
+        <div class="field">
+          <label>Height (m)</label>
+          <input type="number" inputmode="decimal" min="0.5" max="120" id="scan-height" placeholder="e.g. 9" value="${esc(scanState.height)}">
+          <span style="font-size:11.5px;color:var(--ink-soft)">For a palm, measure the <b>trunk only</b> — ground up to where the leaves start.</span>
+        </div>
+        <div class="field">
+          <label>Leaf scar rings in one metre <span style="font-weight:400;color:var(--ink-soft)">(palms only)</span></label>
+          <input type="number" inputmode="numeric" min="1" max="200" id="scan-scars" placeholder="e.g. 30" value="${esc(scanState.scars)}">
+          <span style="font-size:11.5px;color:var(--ink-soft)">Count the rings left by fallen fronds along any one measured metre of trunk.</span>
+        </div>
+        <div class="field">
+          <label>Where is it growing?</label>
+          <select id="scan-site">
+            ${scanOpts("site", [["", "Not sure"], ["open", "Open ground, watered or good soil"], ["normal", "Ordinary conditions"], ["shaded", "Crowded or shaded by bigger trees"], ["poor", "Poor, rocky, sandy or dry soil"], ["pot", "In a pot or restricted space"]])}
+          </select>
+          <span style="font-size:11.5px;color:var(--ink-soft)">This matters a lot. A starved or shaded tree is far older than its thickness suggests.</span>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--ink-soft);margin:14px 0 0;line-height:1.6">
+        Girth works for ordinary trees such as neem, mango, teak and tamarind. Palms need the trunk height and leaf scars instead — a palm trunk does not thicken with age, so a fat coconut is not an old coconut. Banana, bamboo, and old banyan or peepal with fused aerial roots cannot be aged at all, and I will say so rather than guess.
+      </p>
       <div style="margin-top:18px">
         <button class="btn-gradient" id="scan-go"${scanState.loading ? " disabled" : ""}>
           ${scanState.loading ? "Analysing…" : "Scan plant"}
@@ -1692,6 +1730,292 @@ function scanHTML() {
     </div>
 
     <div id="scan-result">${scanState.result ? scanResultHTML(scanState.result) : ""}</div>`;
+}
+
+/* ---------- Tree age + stored CO2, calculated from a tape measure ----------
+   These numbers are worked out HERE in JavaScript, not by the AI, so they are
+   exact and reproducible — the same approach the Plan tab uses. The AI only
+   supplies the species-specific inputs it is actually qualified to give:
+   the growth-factor range and, if the user didn't measure it, a typical
+   height for a tree of that species and thickness.
+
+   Age:  age = growth factor x diameter in inches   (standard arborist method)
+   CO2:  green weight = 0.25 x D^2 x H  (or 0.15 above 11 inches diameter)
+         x 1.2 for roots, x 0.725 for dry weight, x 0.5 for carbon,
+         x 3.6663 to convert carbon to CO2.
+   Source: University of New Mexico, "Calculating tree carbon".
+   -------------------------------------------------------------------------- */
+const LB_TO_KG = 0.45359237;
+
+/* ============================================================================
+   TREE AGE — three methods, chosen by what the plant actually is.
+   Every number here is an APPROXIMATE RANGE. There is no way to get an exact
+   age from outside a tree, and in the tropics even cutting it down is
+   unreliable: with no cold winter, rings form around wet and dry spells, so a
+   tree can lay down two in a year or none at all.
+
+   METHOD 1 — GIRTH, for ordinary (dicot) trees: neem, mango, teak, tamarind.
+     age = growth factor x trunk diameter in inches. These trees add a ring of
+     wood every year, so thickness tracks age.
+
+   METHOD 2 — LEAF SCARS, for palms: coconut, areca, palmyra.
+     Girth tells you NOTHING about a palm — no cambium, no secondary
+     thickening, so a fat palm is not an old palm. But a coconut drops 12-14
+     fronds a year and each one leaves a scar ring, so the trunk is a calendar.
+     Count the scars in one measured metre, multiply by trunk height, divide by
+     leaves per year, add the sapling years before any trunk formed.
+
+   METHOD 3 — REFUSE. Banana (a pseudostem that dies after fruiting), bamboo
+     (a culm reaches full width in one season), old banyan and peepal (aerial
+     roots fuse into what looks like one trunk), bonsai and pot-bound plants.
+   ============================================================================ */
+
+/* Growth factors for trees actually found on Indian campuses, matched on
+   botanical name. Fixed here rather than left to the AI so the common cases
+   answer the same way every time. Published arborist factors come from slow
+   temperate trees and are far too high for India, so these are tropical
+   values. Anything unlisted falls back to the AI's range. */
+const GROWTH_FACTORS = [
+  [/azadirachta|\bneem\b/i, 1.0, 2.0],
+  [/delonix|gulmohar|flame tree/i, 1.0, 2.0],
+  [/samanea|albizia saman|rain tree/i, 1.0, 2.0],
+  [/eucalyptus/i, 0.8, 1.6],
+  [/leucaena|subabul/i, 0.8, 1.6],
+  [/casuarina/i, 1.0, 1.8],
+  [/grevillea|silver oak/i, 1.2, 2.2],
+  [/saraca|\bashoka\b/i, 1.2, 2.4],
+  [/polyalthia/i, 1.2, 2.4],
+  [/mangifera|\bmango\b/i, 2.0, 3.5],
+  [/syzygium|jamun/i, 2.0, 3.5],
+  [/tamarindus|tamarind/i, 2.5, 4.0],
+  [/terminalia|arjuna/i, 2.0, 3.5],
+  [/psidium|guava/i, 2.0, 3.5],
+  [/pongamia|millettia/i, 2.0, 3.5],
+  [/swietenia|mahogany/i, 2.0, 3.5],
+  [/tectona|\bteak\b/i, 3.0, 5.0],
+  [/santalum|sandalwood/i, 3.5, 5.5],
+  [/dalbergia|rosewood/i, 3.0, 5.0],
+];
+
+function lookupGrowthFactor(id) {
+  const name = String((id && id.botanicalName) || '') + ' ' + String((id && id.commonName) || '');
+  for (const row of GROWTH_FACTORS) {
+    if (row[0].test(name)) return { low: row[1], high: row[2], known: true };
+  }
+  return { low: id && id.growthFactorLow, high: id && id.growthFactorHigh, known: false };
+}
+
+/* Only the person standing in front of the tree knows this, and it matters
+   more than anything else. A tree starved of light or water grows slowly, so
+   for a given thickness it is OLDER than average — the factor goes up. A
+   watered, fertilised campus tree grew fast, so it is YOUNGER than its size
+   suggests — the factor goes down. This is what stops the tool calling a
+   50-year-old suppressed tree a 12-year-old. */
+const SITE_CONDITIONS = {
+  "": { mult: 1, label: "" },
+  open: { mult: 0.75, label: "open ground, watered or good soil — grows fast" },
+  normal: { mult: 1, label: "ordinary conditions" },
+  shaded: { mult: 1.4, label: "crowded or shaded — grows slowly" },
+  poor: { mult: 1.6, label: "poor, rocky, sandy or dry soil — grows slowly" },
+  pot: { mult: 2.5, label: "in a pot or restricted — growth deliberately limited" },
+};
+
+function siteInfo(key) {
+  return SITE_CONDITIONS[key] || SITE_CONDITIONS[""];
+}
+
+function treeMetrics(girthCm, heightM, gfLow, gfHigh) {
+  const girth = Number(girthCm);
+  if (!isFinite(girth) || girth <= 0) return null;
+
+  const diameterCm = girth / Math.PI;
+  const diameterIn = diameterCm / 2.54;
+  const heightFt = Number(heightM) * 3.280839895;
+
+  const lo = Number(gfLow), hi = Number(gfHigh);
+  const ageLow = isFinite(lo) && lo > 0 ? lo * diameterIn : null;
+  const ageHigh = isFinite(hi) && hi > 0 ? hi * diameterIn : null;
+
+  let co2Kg = null, carbonKg = null;
+  if (isFinite(heightFt) && heightFt > 0) {
+    const coefficient = diameterIn < 11 ? 0.25 : 0.15;
+    const aboveGroundLb = coefficient * diameterIn * diameterIn * heightFt;
+    const dryLb = aboveGroundLb * 1.2 * 0.725;   // + roots, - moisture
+    const carbonLb = dryLb * 0.5;                // carbon is ~half of dry mass
+    carbonKg = carbonLb * LB_TO_KG;
+    co2Kg = carbonLb * 3.6663 * LB_TO_KG;        // carbon -> carbon dioxide
+  }
+
+  return { diameterCm, ageLow, ageHigh, co2Kg, carbonKg };
+}
+
+/* Palms: the trunk is a stack of leaf scars, and leaves come at a steady rate.
+   trunkHeightM is ground to where the fronds start, NOT the top of the leaves. */
+function palmMetrics(trunkHeightM, scarsPerMetre, leavesPerYear, preTrunkYears) {
+  const h = Number(trunkHeightM);
+  if (!isFinite(h) || h <= 0) return null;
+
+  const perYear = isFinite(Number(leavesPerYear)) && Number(leavesPerYear) > 0 ? Number(leavesPerYear) : 13;
+  const pre = isFinite(Number(preTrunkYears)) && Number(preTrunkYears) > 0 ? Number(preTrunkYears) : 5;
+  const scars = Number(scarsPerMetre);
+
+  if (isFinite(scars) && scars > 0) {
+    const total = scars * h;
+    // Leaf production varies 12-14 a year, so this naturally gives a range.
+    return {
+      method: "scars",
+      totalScars: Math.round(total),
+      ageLow: total / (perYear + 1) + pre,
+      ageHigh: total / (perYear - 1) + pre,
+      preTrunkYears: pre,
+    };
+  }
+  // No scar count — fall back to trunk height. Coconut trunks rise roughly
+  // 30-45 cm a year, which is the same thing expressed less precisely.
+  return {
+    method: "height",
+    ageLow: (h * 100) / 45 + pre,
+    ageHigh: (h * 100) / 30 + pre,
+    preTrunkYears: pre,
+  };
+}
+
+function fmtKg(kg) {
+  if (!isFinite(kg) || kg === null) return "—";
+  if (kg >= 1000) return (kg / 1000).toFixed(2) + " tonnes";
+  return Math.round(kg) + " kg";
+}
+
+function ageRangeText(low, high) {
+  if (!isFinite(low) || !isFinite(high) || low <= 0) return null;
+  const a = Math.max(1, Math.round(low)), b = Math.max(1, Math.round(high));
+  if (b > 1200) return null;   // absurd input, not a discovery
+  return a === b ? "about " + a + " years" : "roughly " + a + " to " + b + " years";
+}
+
+const APPROX_PILL =
+  '<span class="scan-pill" style="background:#b8860b15;color:#b8860b;border-color:#b8860b40">Approximate only</span>';
+
+function agePanel(title, rows, footnote) {
+  return '<div class="panel" style="margin-top:16px">' +
+    '<div class="scan-idhead"><h3 style="margin:0;font-size:15px">' + title + '</h3>' + APPROX_PILL + '</div>' +
+    '<p style="font-size:12.5px;color:var(--ink-soft);margin:10px 0 4px;line-height:1.6">' +
+    'This is an <b>estimate, not a measurement</b>. It assumes average growth for the species. ' +
+    'Treat it as a rough range only.</p>' +
+    rows +
+    '<p style="font-size:12px;color:var(--ink-soft);margin:14px 0 0;line-height:1.6">' + footnote + '</p>' +
+    '</div>';
+}
+
+function treeAgeHTML(id, measured) {
+  id = id || {};
+  measured = measured || {};
+  const girth = Number(measured.girthCm) || null;
+  const heightM = Number(measured.heightM) || null;
+  const scars = Number(measured.scarsPerMetre) || null;
+  const site = siteInfo(measured.site);
+  const method = id.agingMethod || (id.girthAgingValid === false ? "none" : "girth");
+
+  if (!girth && !heightM) return "";   // nothing measured, nothing to show
+
+  const row = (label, val) =>
+    '<div class="scan-row"><span>' + label + '</span><b>' + esc(String(val)) + '</b></div>';
+
+  /* ---- Method 3: this plant genuinely cannot be aged ---- */
+  if (method === "none") {
+    return '<div class="panel" style="margin-top:16px">' +
+      '<div class="scan-idhead"><h3 style="margin:0;font-size:15px">Age</h3></div>' +
+      '<p style="font-size:13px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6">' +
+      esc(id.girthAgingNote ||
+        "This plant cannot be aged from outside. I would rather tell you that than give you a number that is wrong.") +
+      '</p></div>';
+  }
+
+  /* ---- Method 2: palms ---- */
+  if (method === "palm") {
+    if (!heightM) {
+      return '<div class="panel" style="margin-top:16px">' +
+        '<div class="scan-idhead"><h3 style="margin:0;font-size:15px">Age</h3></div>' +
+        '<p style="font-size:13px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6">' +
+        'This is a palm. Trunk girth cannot age a palm — palms have no annual rings and their trunks ' +
+        'do not thicken with age, so a fat palm is not an old palm. Measure the <b>trunk height</b> ' +
+        'instead (ground up to where the leaves start) and I can estimate it. Counting the leaf scar ' +
+        'rings in one metre of trunk makes it more accurate still.</p></div>';
+    }
+    const p = palmMetrics(heightM, scars, id.palmLeavesPerYear, id.palmPreTrunkYears);
+    const range = p && ageRangeText(p.ageLow, p.ageHigh);
+    let rows =
+      row("Trunk height measured", heightM.toFixed(1) + " m") +
+      (p.method === "scars" ? row("Leaf scars counted", scars + " per metre (about " + p.totalScars + " in total)") : "") +
+      row("Estimated age", range || "not enough information") +
+      row("Method used", p.method === "scars" ? "leaf scar count" : "trunk height only");
+    const foot = p.method === "scars"
+      ? 'A coconut palm drops 12 to 14 fronds a year and each one leaves a scar ring, so the trunk records ' +
+        'time. Total scars divided by leaves per year, plus about ' + p.preTrunkYears + ' years as a sapling before any ' +
+        'trunk formed. Leaf production changes with rainfall and nutrition, which is why this is a range. ' +
+        'CO<sub>2</sub> is not shown for palms — the tree biomass formula does not apply to them, and using it ' +
+        'would give a wrong figure.'
+      : 'Estimated from trunk height alone, assuming roughly 30 to 45 cm of trunk a year plus about ' +
+        p.preTrunkYears + ' years as a sapling. <b>Counting the leaf scar rings in one metre of trunk would ' +
+        'make this considerably more accurate</b> — go back and add that number. ' +
+        'CO<sub>2</sub> is not shown for palms — the tree biomass formula does not apply to them.';
+    return agePanel("Age of this palm", rows, foot);
+  }
+
+  /* ---- Method 1: ordinary trees, by girth ---- */
+  if (!girth) return "";
+  const gf = lookupGrowthFactor(id);
+  const usableHeight = heightM || Number(id.typicalHeightM) || null;
+  const m = treeMetrics(girth, usableHeight, gf.low, gf.high);
+  if (!m) return "";
+
+  // Apply the growing conditions. A suppressed tree is older than its girth
+  // suggests; a pampered one is younger.
+  let lowAge = m.ageLow, highAge = m.ageHigh;
+  if (lowAge && highAge && site.mult !== 1) {
+    lowAge *= site.mult;
+    highAge *= site.mult;
+  }
+  // If the bark and form look older than the thickness does, widen upward
+  // rather than report a falsely young number.
+  if (id.looksOlderThanGirth === true && highAge) highAge *= 1.5;
+
+  const range = ageRangeText(lowAge, highAge);
+  const estimatedHeight = !heightM && usableHeight;
+
+  let rows =
+    row("Trunk girth measured", Math.round(girth) + " cm") +
+    row("Trunk diameter", m.diameterCm.toFixed(1) + " cm") +
+    (usableHeight ? row("Height used", Number(usableHeight).toFixed(1) + " m" + (estimatedHeight ? " (estimated)" : "")) : "") +
+    row("Estimated age", range || "not enough species data") +
+    (site.label ? row("Growing conditions", site.label) : "") +
+    (m.co2Kg !== null ? row("CO2 stored so far", fmtKg(m.co2Kg)) : "") +
+    (m.carbonKg !== null ? row("Carbon held in the wood", fmtKg(m.carbonKg)) : "");
+
+  let foot =
+    'Age is estimated as growth factor x trunk diameter, the standard arborist method. ' +
+    (gf.known
+      ? 'A growth factor for this species is built into the site. '
+      : 'This species is not in the built-in table, so the factor came from the AI and is less reliable. ') +
+    'Growth factors are far better documented for temperate species than Indian ones. ' +
+    'Only counting the rings of a felled trunk gives a true age, and even that is unreliable in the tropics, ' +
+    'where rings follow wet and dry spells rather than years.';
+
+  if (id.looksOlderThanGirth === true) {
+    foot += ' <b>Note:</b> ' + esc(id.olderThanGirthNote ||
+      'the bark and form look older than the trunk thickness suggests, so this tree may have been growing slowly in shade or poor soil. The upper end of the range has been widened.');
+  }
+  if (measured.site === "pot") {
+    foot += ' <b>This plant is pot-restricted</b>, so its growth was deliberately limited. Age from thickness is very unreliable here and could be out by decades.';
+  }
+  if (!measured.site) {
+    foot += ' You did not say what conditions it grows in. Answering that question makes this estimate noticeably better, because a shaded or starved tree is much older than its thickness suggests.';
+  }
+  if (m.co2Kg !== null) {
+    foot += ' CO<sub>2</sub> is calculated from girth and height by the standard green-weight method (roots included, 50% of dry mass as carbon, x 3.6663). It describes carbon already stored in this one tree. It is <b>not</b> a carbon credit and cannot be traded — credits require verified, additional projects under CCTS.';
+  }
+
+  return agePanel("Age &amp; stored CO<sub>2</sub>", rows, foot);
 }
 
 function confidencePill(level) {
@@ -1742,6 +2066,8 @@ function scanResultHTML(r) {
       ${row("Family", id.family)}
       ${ab.description ? `<p style="font-size:13.5px;line-height:1.65;margin:14px 0 0">${esc(ab.description)}</p>` : ""}
     </div>
+
+    ${treeAgeHTML(id, r.measured || {})}
 
     ${
       alts.length
@@ -1928,6 +2254,13 @@ function bindScanEvents() {
 function runScan() {
   const notesEl = document.getElementById("scan-notes");
   if (notesEl) scanState.notes = notesEl.value;
+  // Free-text fields are read at submit time rather than on every keystroke.
+  const girthEl = document.getElementById("scan-girth");
+  if (girthEl) scanState.girth = girthEl.value;
+  const heightEl = document.getElementById("scan-height");
+  if (heightEl) scanState.height = heightEl.value;
+  const scarsEl = document.getElementById("scan-scars");
+  if (scarsEl) scanState.scars = scarsEl.value;
 
   const images = SCAN_SLOTS.filter(function (s) {
     return scanState.photos[s.key];
@@ -1963,6 +2296,10 @@ function runScan() {
       watering: scanState.watering,
       spreading: scanState.spreading,
       notes: scanState.notes,
+      girthCm: scanState.girth ? Number(scanState.girth) : null,
+      heightM: scanState.height ? Number(scanState.height) : null,
+      scarsPerMetre: scanState.scars ? Number(scanState.scars) : null,
+      site: scanState.site,
     }),
   })
     .then(function (res) {
@@ -1978,6 +2315,14 @@ function runScan() {
         scanState.error = detail ? msg + " — " + detail : msg;
       } else {
         scanState.result = out.body;
+        // Keep what the user actually measured alongside the AI's answer, so
+        // the age and CO2 panel can be recalculated on any re-render.
+        scanState.result.measured = {
+          girthCm: scanState.girth ? Number(scanState.girth) : null,
+          heightM: scanState.height ? Number(scanState.height) : null,
+          scarsPerMetre: scanState.scars ? Number(scanState.scars) : null,
+          site: scanState.site,
+        };
       }
       renderAppContent();
       const el = document.getElementById("scan-result");
