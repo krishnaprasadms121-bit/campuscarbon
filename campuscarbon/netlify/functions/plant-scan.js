@@ -146,6 +146,38 @@ green volume, as used in allometric biomass equations. Typical tropical
 hardwoods are 0.45 to 0.90. Set 0 if you do not know it for this species;
 the site then uses a documented default rather than your guess.
 
+GROWTH HABIT — classify every plant, this drives everything else
+Set growthHabit to the botanical habit of the plant. This decides what the
+site is willing to calculate, so be accurate rather than generous.
+
+  "tree"      single woody trunk, secondary thickening, long-lived.
+              Neem, mango, teak, tamarind, gulmohar, rain tree.
+  "palm"      monocot with a crown of fronds and a non-thickening trunk.
+              Coconut, areca, palmyra, date.
+  "shrub"     woody but multi-stemmed from the base, usually under 4 m.
+              Hibiscus, oleander, ixora, croton, tulsi when woody.
+  "herb"      soft green non-woody stems, often annual. Basil, coriander,
+              money plant grown in water, most garden flowers.
+  "climber"   climbs a support by twining or tendrils, woody or soft.
+              Money plant, jasmine, bougainvillea, passion fruit.
+  "creeper"   spreads flat along the ground, often rooting as it goes.
+              Sweet potato vine, wandering jew, lawn weeds.
+  "grass"     true grasses and sedges, including lawn grass and sugarcane.
+  "bamboo"    woody grass. Culms reach full width in a single season.
+  "succulent" thick water-storing tissue. Aloe, cactus, jade plant.
+  "aquatic"   water lily, lotus, water hyacinth.
+  "fern"      ferns and tree ferns.
+  "other"     mosses, cycads, parasitic plants, anything that fits nothing.
+
+habitNote — one short sentence a non-botanist understands, saying what makes
+it that habit. Example: "It has several woody stems coming straight out of
+the ground rather than one trunk, which makes it a shrub rather than a tree."
+
+Be careful with the common confusions: a banana is a giant HERB, not a tree.
+Bamboo is a grass. Papaya has a soft unbranched stem and is usually treated
+as a herb or a soft-stemmed tree — say so in habitNote. A young tree sapling
+is still a "tree".
+
 AGE ESTIMATION — pick the right method for what this plant actually is
 The site does all the arithmetic itself and prints everything as an
 approximate range. Do NOT state an age, a year, or a CO2 figure yourself.
@@ -250,6 +282,8 @@ Reply with ONLY a JSON object. No markdown, no backticks, no text before or afte
     "family": "",
     "confidence": "high | medium | low",
     "alternatives": [{ "name": "", "howToTellApart": "" }],
+    "growthHabit": "tree | palm | shrub | herb | climber | creeper | grass | bamboo | succulent | aquatic | fern | other",
+    "habitNote": "",
     "agingMethod": "girth | palm | none",
     "girthAgingNote": "",
     "growthFactorLow": 0,

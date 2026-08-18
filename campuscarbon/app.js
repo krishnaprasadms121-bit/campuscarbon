@@ -2003,6 +2003,97 @@ function agePanel(title, rows, footnote) {
     '</div>';
 }
 
+/* ---------------------------------------------------------------------------
+   GROWTH HABIT decides what this plant can honestly support.
+   Only woody, long-lived biomass counts as sequestered carbon. A herb or a
+   creeper builds its tissue in one season and releases it again when it dies
+   back — that carbon is cycling, not stored. Printing a "CO2 stored" figure
+   for one on a carbon-credit site would be actively misleading, so those
+   plants get an explanation instead of a number.
+   --------------------------------------------------------------------------- */
+const HABITS = {
+  tree: {
+    label: "Tree", age: true, carbon: true,
+    why: "",
+  },
+  palm: {
+    label: "Palm", age: true, carbon: false,
+    why: "Carbon is not shown for palms. The allometric equation used here is built for woody trees that add rings of wood each year; a palm trunk is built completely differently, so the equation would give a confidently wrong figure.",
+  },
+  shrub: {
+    label: "Shrub", age: false, carbon: false,
+    why: "A shrub has several stems from the base rather than one trunk, so trunk thickness cannot give an age. Carbon is not shown either: shrub biomass equations are highly species-specific and barely documented for Indian species, so any figure would be invented rather than calculated.",
+  },
+  herb: {
+    label: "Herb", age: false, carbon: false,
+    why: "Herbs are soft-stemmed and often live less than a year, so there is no age to find. Carbon is not shown because a herb builds its tissue in one season and releases it again when it dies back — that carbon is cycling, not stored. Only long-lived woody growth counts as sequestration.",
+  },
+  climber: {
+    label: "Climber", age: false, carbon: false,
+    why: "A climber's stems root wherever they touch, so there is often no single individual to age. Its carbon is also not counted as stored — soft growth returns to the atmosphere within a season or two.",
+  },
+  creeper: {
+    label: "Creeper", age: false, carbon: false,
+    why: "Creepers root as they spread, so what looks like one plant may be many, and there is no age to give. Their carbon is not sequestered either — it cycles back as the plant dies down.",
+  },
+  grass: {
+    label: "Grass", age: false, carbon: false,
+    why: "Grasses regrow from the base each season and hold no lasting woody tissue, so neither an age nor stored carbon can be given.",
+  },
+  bamboo: {
+    label: "Bamboo", age: false, carbon: false,
+    why: "Bamboo is a woody grass. A culm reaches its full diameter in a single season, so thickness says nothing about age. It does store carbon, but the equations used here are for trees and do not apply to it.",
+  },
+  succulent: {
+    label: "Succulent", age: false, carbon: false,
+    why: "Succulents store water rather than wood, so neither trunk thickness nor tree biomass equations mean anything for them.",
+  },
+  aquatic: { label: "Aquatic plant", age: false, carbon: false, why: "Aquatic plants hold no woody tissue and turn over quickly, so no age or stored-carbon figure can honestly be given." },
+  fern: { label: "Fern", age: false, carbon: false, why: "Ferns have no annual growth rings and no woody trunk, so there is nothing to measure an age against." },
+  other: { label: "Plant", age: false, carbon: false, why: "This plant does not fit the woody-tree pattern that the age and carbon calculations depend on." },
+};
+
+function habitInfo(key) {
+  return HABITS[String(key || "").toLowerCase()] || null;
+}
+
+/* Dimensions and a plain explanation of what this plant type can and cannot
+   support. Used for everything that is not a tree. */
+function habitPanelHTML(id, measured) {
+  const h = habitInfo(id.growthHabit);
+  // Trees (carbon) and palms (age from leaf scars) have their own panel and
+  // must fall through to it. Only habits that support neither land here.
+  if (!h || h.carbon || h.age) return "";
+
+  const d = id.dimensions || {};
+  const src = String(d.source || "").toLowerCase();
+  const word = src.indexOf("scale") !== -1 ? "estimated from the scale object in your photo"
+    : src.indexOf("rough") !== -1 ? "rough visual estimate from the photo"
+    : "estimated from the photo";
+  const row = (label, val, note) => val
+    ? '<div class="scan-row"><span>' + label + '</span><b>' + esc(val) +
+      (note ? ' <span style="color:#b8860b;font-weight:400">(' + note + ')</span>' : "") + '</b></div>'
+    : "";
+
+  const height = Number(measured.heightM) || Number(d.heightM) || null;
+  const rows =
+    row("Growth habit", h.label) +
+    (height ? row("Height", Number(height).toFixed(1) + " m", measured.heightM ? "measured" : word) : "") +
+    (Number(d.canopyWidthM) > 0 ? row("Spread", Number(d.canopyWidthM).toFixed(1) + " m", word) : "");
+
+  if (!rows) return "";
+
+  return '<div class="panel" style="margin-top:16px">' +
+    '<div class="scan-idhead"><h3 style="margin:0;font-size:15px">Size &amp; what can be estimated</h3>' + APPROX_PILL + '</div>' +
+    '<p style="font-size:12.5px;color:var(--ink-soft);margin:10px 0 4px;line-height:1.6">Sizes are estimates, not measurements.</p>' +
+    rows +
+    (id.habitNote ? '<p style="font-size:13px;line-height:1.65;margin:14px 0 0">' + esc(id.habitNote) + '</p>' : "") +
+    '<p class="note-banner" style="margin-top:14px">' +
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>' +
+    '<span><b>No age or stored-CO<sub>2</sub> figure for this plant.</b> ' + h.why + '</span></p>' +
+    '</div>';
+}
+
 function treeAgeHTML(id, measured, scene) {
   id = id || {};
   measured = measured || {};
@@ -2309,10 +2400,11 @@ function scanResultHTML(r) {
       ${localNameRow("Hindi", id.hindiName)}
       ${row("Other names", id.otherLocalNames)}
       ${row("Family", id.family)}
+      ${habitInfo(id.growthHabit) ? row("Growth habit", habitInfo(id.growthHabit).label) : ""}
       ${ab.description ? `<p style="font-size:13.5px;line-height:1.65;margin:14px 0 0">${esc(ab.description)}</p>` : ""}
     </div>
 
-    ${notLiving ? "" : treeAgeHTML(id, r.measured || {}, r.scene || {})}
+    ${notLiving ? "" : (habitPanelHTML(id, r.measured || {}) || treeAgeHTML(id, r.measured || {}, r.scene || {}))}
 
     ${
       alts.length
