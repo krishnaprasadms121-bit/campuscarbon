@@ -582,3 +582,12 @@ img { max-width: 100%; display: block; }
   flex-wrap: wrap;
 }
 .passport-foot span { font-size: 12px; color: var(--ink-soft); }
+
+
+/* ---- Scanned tree tag takes over the whole page ---- */
+body.tag-view #site-header,
+body.tag-view .site-footer,
+body.tag-view .app-subnav,
+body.tag-view .nav-mobile { display: none !important; }
+body.tag-view .app-shell { padding-top: 0; }
+body.tag-view { background: #f6f9f7; }

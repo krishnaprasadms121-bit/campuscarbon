@@ -244,9 +244,7 @@ function compressImageFile(file, cb) {
 function goTo(view, tab) {
   state.view = view;
   if (tab) state.tab = tab;
-  // Arriving from a scanned QR tree tag: show that tree straight away.
-  const tagged = typeof readTreeTagFromURL === "function" ? readTreeTagFromURL() : null;
-  if (tagged) { state.passport = tagged; state.tab = "register"; }
+  state.passport = null;   // any deliberate navigation leaves the tag view
   document.getElementById("nav-mobile").classList.remove("open");
   render();
   window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
@@ -289,6 +287,15 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("view-modal-backdrop").addEventListener("click", (e) => {
     if (e.target.id === "view-modal-backdrop") e.currentTarget.classList.remove("open");
   });
+
+  // A scanned QR tree tag must open THAT TREE immediately — not the
+  // marketing homepage. This has to happen before the first render.
+  const tagged = typeof readTreeTagFromURL === "function" ? readTreeTagFromURL() : null;
+  if (tagged) {
+    state.passport = tagged;
+    state.view = "app";
+    state.tab = "register";
+  }
 
   render();
 });
@@ -922,9 +929,28 @@ function buildTagCanvas(t, wantPhoto) {
   return cv;
 }
 
+/* Trees saved before this update have a thumbnail but no tag-sized photo.
+   Rebuild it from the thumbnail rather than making the user scan again. */
+function ensureTagPhoto(t, cb) {
+  if (t.tagPhoto || !t.thumb) { cb(t); return; }
+  makeThumb(t.thumb, function (_big, tiny) {
+    if (tiny) {
+      t.tagPhoto = tiny;
+      const list = getRegister();
+      const i = list.findIndex(function (x) { return x.id === t.id; });
+      if (i !== -1) { list[i].tagPhoto = tiny; saveRegister(list); }
+    }
+    cb(t);
+  });
+}
+
 function downloadTag(id, wantPhoto) {
   const t = getRegister().find(function (x) { return x.id === id; });
   if (!t) return;
+  if (wantPhoto && !t.tagPhoto && t.thumb) {
+    ensureTagPhoto(t, function () { downloadTag(id, true); });
+    return;
+  }
   const cv = buildTagCanvas(t, wantPhoto);
   if (!cv) { alert("Could not build the QR tag for this tree."); return; }
   if (wantPhoto && !cv.dataWithPhoto) {
@@ -1067,9 +1093,14 @@ function registerDetailHTML(id) {
         Print this, laminate it, and tie it to the trunk. Anyone can scan it with Google Lens or any QR reader and see this tree's details. The details are stored inside the code itself, so it works with no internet and no app.
       </p>
       <div id="reg-qr" style="text-align:center;padding:10px 0"></div>
+      <p style="font-size:12.5px;color:var(--ink-soft);line-height:1.6;margin:0">
+        ${(t.tagPhoto || t.thumb)
+          ? "The preview above is the smaller details-only code. <b>Download tag WITH photo</b> to get the version that carries this tree's picture — print that one at least 6 cm across, because it is a denser code."
+          : "This tree has no photo saved, so its tag carries the details only."}
+      </p>
       <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn-solid" data-download-tag="${esc(t.id)}">Download tag</button>
-        ${t.tagPhoto ? `<button class="btn-solid" data-download-tag-photo="${esc(t.id)}">Download tag with photo</button>` : ""}
+        ${(t.tagPhoto || t.thumb) ? `<button class="btn-gradient" data-download-tag-photo="${esc(t.id)}">Download tag WITH photo</button>` : ""}
+        <button class="btn-ghost-dark" data-download-tag="${esc(t.id)}">Tag without photo (smaller)</button>
         <button class="btn-ghost-dark" data-delete-tree="${esc(t.id)}">Remove this tree</button>
       </div>
       <p style="font-size:12px;color:var(--ink-soft);line-height:1.6;margin:14px 0 0">
@@ -1144,8 +1175,12 @@ function bindRegisterEvents() {
   const exit = q("[data-passport-exit]");
   if (exit) exit.addEventListener("click", function () {
     state.passport = null;
-    if (location.hash) history.replaceState(null, "", location.pathname);
-    renderAppContent();
+    // Drop the tag out of the address bar so it does not reopen.
+    if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+    document.body.classList.remove("tag-view");
+    state.view = "app";
+    state.tab = "register";
+    render();
   });
 
   const dl = q("[data-download-tag]");
@@ -1353,16 +1388,16 @@ function bindAppShellEvents() {
 
 function renderAppContent() {
   const el = document.getElementById("app-content");
-  // A scanned tree tag takes over the page completely — read-only, no tabs.
-  const nav = document.querySelector(".app-subnav");
+  // A scanned tree tag takes over the WHOLE page — no site header, no menu,
+  // no tabs, no footer. Someone at a tree wants that tree, not the website.
   if (state.passport) {
-    if (nav) nav.style.display = "none";
+    document.body.classList.add("tag-view");
     el.innerHTML = passportHTML(state.passport);
     bindRegisterEvents();
     if (window.scrollTo) window.scrollTo({ top: 0, behavior: "auto" });
     return;
   }
-  if (nav) nav.style.display = "";
+  document.body.classList.remove("tag-view");
   if (state.tab === "calc") { el.innerHTML = calcHTML(); bindCalcEvents(); updateCalcResults(); }
   else if (state.tab === "track") { el.innerHTML = trackHTML(); bindTrackEvents(); }
   else if (state.tab === "apply") { el.innerHTML = applyHTML(); }
