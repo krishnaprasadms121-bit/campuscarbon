@@ -244,6 +244,9 @@ function compressImageFile(file, cb) {
 function goTo(view, tab) {
   state.view = view;
   if (tab) state.tab = tab;
+  // Arriving from a scanned QR tree tag: show that tree straight away.
+  const tagged = typeof readTreeTagFromURL === "function" ? readTreeTagFromURL() : null;
+  if (tagged) { state.passport = tagged; state.tab = "register"; }
   document.getElementById("nav-mobile").classList.remove("open");
   render();
   window.scrollTo({ top: 0, behavior: "instant" in window ? "instant" : "auto" });
@@ -427,6 +430,838 @@ function bindExploreEvents() {
 
 /* ---------------------------------------------------------------------- */
 /* App shell                                                                */
+/* ===========================================================================
+   QR CODE GENERATOR — written into this file on purpose.
+
+   Deliberately NOT loaded from a CDN. This site is used walking around a
+   campus where signal is poor, and a third-party script that fails to load
+   would silently break the tree tags. Everything needed is here.
+
+   Byte mode, error correction level L or M, versions 1-40, automatic mask
+   selection. Tables taken from the QR specification.
+   =========================================================================== */
+var QR = (function () {
+  // [version][0]=L blocks, [1]=M blocks; each [count,totalBytes,dataBytes,...]
+  var RS_BLOCKS = [[[1,26,19],[1,26,16]],[[1,44,34],[1,44,28]],[[1,70,55],[1,70,44]],[[1,100,80],[2,50,32]],[[1,134,108],[2,67,43]],[[2,86,68],[4,43,27]],[[2,98,78],[4,49,31]],[[2,121,97],[2,60,38,2,61,39]],[[2,146,116],[3,58,36,2,59,37]],[[2,86,68,2,87,69],[4,69,43,1,70,44]],[[4,101,81],[1,80,50,4,81,51]],[[2,116,92,2,117,93],[6,58,36,2,59,37]],[[4,133,107],[8,59,37,1,60,38]],[[3,145,115,1,146,116],[4,64,40,5,65,41]],[[5,109,87,1,110,88],[5,65,41,5,66,42]],[[5,122,98,1,123,99],[7,73,45,3,74,46]],[[1,135,107,5,136,108],[10,74,46,1,75,47]],[[5,150,120,1,151,121],[9,69,43,4,70,44]],[[3,141,113,4,142,114],[3,70,44,11,71,45]],[[3,135,107,5,136,108],[3,67,41,13,68,42]],[[4,144,116,4,145,117],[17,68,42]],[[2,139,111,7,140,112],[17,74,46]],[[4,151,121,5,152,122],[4,75,47,14,76,48]],[[6,147,117,4,148,118],[6,73,45,14,74,46]],[[8,132,106,4,133,107],[8,75,47,13,76,48]],[[10,142,114,2,143,115],[19,74,46,4,75,47]],[[8,152,122,4,153,123],[22,73,45,3,74,46]],[[3,147,117,10,148,118],[3,73,45,23,74,46]],[[7,146,116,7,147,117],[21,73,45,7,74,46]],[[5,145,115,10,146,116],[19,75,47,10,76,48]],[[13,145,115,3,146,116],[2,74,46,29,75,47]],[[17,145,115],[10,74,46,23,75,47]],[[17,145,115,1,146,116],[14,74,46,21,75,47]],[[13,145,115,6,146,116],[14,74,46,23,75,47]],[[12,151,121,7,152,122],[12,75,47,26,76,48]],[[6,151,121,14,152,122],[6,75,47,34,76,48]],[[17,152,122,4,153,123],[29,74,46,14,75,47]],[[4,152,122,18,153,123],[13,74,46,32,75,47]],[[20,147,117,4,148,118],[40,75,47,7,76,48]],[[19,148,118,6,149,119],[18,75,47,31,76,48]]];
+  var ALIGN = [[],[6,18],[6,22],[6,26],[6,30],[6,34],[6,22,38],[6,24,42],[6,26,46],[6,28,50],[6,30,54],[6,32,58],[6,34,62],[6,26,46,66],[6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],[6,30,58,86],[6,34,62,90],[6,28,50,72,94],[6,26,50,74,98],[6,30,54,78,102],[6,28,54,80,106],[6,32,58,84,110],[6,30,58,86,114],[6,34,62,90,118],[6,26,50,74,98,122],[6,30,54,78,102,126],[6,26,52,78,104,130],[6,30,56,82,108,134],[6,34,60,86,112,138],[6,30,58,86,114,142],[6,34,62,90,118,146],[6,30,54,78,102,126,150],[6,24,50,76,102,128,154],[6,28,54,80,106,132,158],[6,32,58,84,110,136,162],[6,26,54,82,110,138,166],[6,30,58,86,114,142,170]];
+
+  // --- Galois field GF(256) for Reed-Solomon ---
+  var EXP = new Array(512), LOG = new Array(256);
+  (function () {
+    var x = 1;
+    for (var i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11d; }
+    for (var i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+  })();
+  function gmul(a, b) { return (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]]; }
+
+  function rsGenerator(n) {
+    var poly = [1];
+    for (var i = 0; i < n; i++) {
+      var next = new Array(poly.length + 1).fill(0);
+      for (var j = 0; j < poly.length; j++) {
+        next[j] ^= poly[j];
+        next[j + 1] ^= gmul(poly[j], EXP[i]);
+      }
+      poly = next;
+    }
+    return poly;
+  }
+
+  function rsEncode(data, ecLen) {
+    var gen = rsGenerator(ecLen);
+    var res = new Array(ecLen).fill(0);
+    for (var i = 0; i < data.length; i++) {
+      var factor = data[i] ^ res[0];
+      res.shift(); res.push(0);
+      for (var j = 0; j < ecLen; j++) res[j] ^= gmul(gen[j + 1], factor);
+    }
+    return res;
+  }
+
+  // --- bit buffer ---
+  function Buf() { this.bytes = []; this.len = 0; }
+  Buf.prototype.put = function (num, bits) {
+    for (var i = bits - 1; i >= 0; i--) this.putBit(((num >>> i) & 1) === 1);
+  };
+  Buf.prototype.putBit = function (bit) {
+    var idx = Math.floor(this.len / 8);
+    if (this.bytes.length <= idx) this.bytes.push(0);
+    if (bit) this.bytes[idx] |= 0x80 >>> (this.len % 8);
+    this.len++;
+  };
+
+  function utf8Bytes(str) {
+    var out = [], s = unescape(encodeURIComponent(str));
+    for (var i = 0; i < s.length; i++) out.push(s.charCodeAt(i));
+    return out;
+  }
+
+  function blocksFor(version, ecl) {
+    var flat = RS_BLOCKS[version - 1][ecl === "M" ? 1 : 0], list = [];
+    for (var i = 0; i < flat.length; i += 3) {
+      for (var j = 0; j < flat[i]; j++) list.push({ total: flat[i + 1], data: flat[i + 2] });
+    }
+    return list;
+  }
+
+  function capacity(version, ecl) {
+    var b = blocksFor(version, ecl), n = 0;
+    for (var i = 0; i < b.length; i++) n += b[i].data;
+    return n;
+  }
+
+  function createData(version, ecl, bytes) {
+    var buf = new Buf();
+    buf.put(4, 4);                                    // byte mode
+    buf.put(bytes.length, version < 10 ? 8 : 16);     // character count
+    for (var i = 0; i < bytes.length; i++) buf.put(bytes[i], 8);
+
+    var totalBits = capacity(version, ecl) * 8;
+    if (buf.len + 4 <= totalBits) buf.put(0, 4);      // terminator
+    while (buf.len % 8 !== 0) buf.putBit(false);
+    var pad = [0xEC, 0x11], p = 0;
+    while (buf.bytes.length < capacity(version, ecl)) buf.bytes.push(pad[p++ % 2]);
+    return buf.bytes;
+  }
+
+  function interleave(version, ecl, dataBytes) {
+    var blocks = blocksFor(version, ecl), offset = 0, dparts = [], eparts = [], maxD = 0, maxE = 0;
+    for (var i = 0; i < blocks.length; i++) {
+      var dlen = blocks[i].data, elen = blocks[i].total - dlen;
+      var d = dataBytes.slice(offset, offset + dlen); offset += dlen;
+      dparts.push(d); eparts.push(rsEncode(d, elen));
+      if (dlen > maxD) maxD = dlen;
+      if (elen > maxE) maxE = elen;
+    }
+    var out = [];
+    for (var i = 0; i < maxD; i++) for (var j = 0; j < dparts.length; j++) if (i < dparts[j].length) out.push(dparts[j][i]);
+    for (var i = 0; i < maxE; i++) for (var j = 0; j < eparts.length; j++) if (i < eparts[j].length) out.push(eparts[j][i]);
+    return out;
+  }
+
+  // --- module placement ---
+  function makeMatrix(version) {
+    var n = version * 4 + 17, m = [], r = [];
+    for (var i = 0; i < n; i++) { m.push(new Array(n).fill(null)); r.push(new Array(n).fill(false)); }
+    return { size: n, mods: m, reserved: r };
+  }
+
+  function setFinder(g, row, col) {
+    for (var dr = -1; dr <= 7; dr++) {
+      for (var dc = -1; dc <= 7; dc++) {
+        var rr = row + dr, cc = col + dc;
+        if (rr < 0 || cc < 0 || rr >= g.size || cc >= g.size) continue;
+        var on = (dr >= 0 && dr <= 6 && (dc === 0 || dc === 6)) ||
+                 (dc >= 0 && dc <= 6 && (dr === 0 || dr === 6)) ||
+                 (dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4);
+        g.mods[rr][cc] = on; g.reserved[rr][cc] = true;
+      }
+    }
+  }
+
+  function setFunctionPatterns(g, version) {
+    setFinder(g, 0, 0); setFinder(g, 0, g.size - 7); setFinder(g, g.size - 7, 0);
+    // timing
+    for (var i = 8; i < g.size - 8; i++) {
+      g.mods[6][i] = g.mods[i][6] = (i % 2 === 0);
+      g.reserved[6][i] = g.reserved[i][6] = true;
+    }
+    // alignment
+    var pos = ALIGN[version - 1] || [], last = pos.length - 1;
+    for (var a = 0; a < pos.length; a++) {
+      for (var b = 0; b < pos.length; b++) {
+        // Skip only the three that collide with the finder patterns. The ones
+        // sitting on the timing row/column ARE drawn — missing them is why
+        // version 7 and above failed to scan.
+        if ((a === 0 && b === 0) || (a === 0 && b === last) || (a === last && b === 0)) continue;
+        var r = pos[a], c = pos[b];
+        for (var dr = -2; dr <= 2; dr++) {
+          for (var dc = -2; dc <= 2; dc++) {
+            g.mods[r + dr][c + dc] = (Math.max(Math.abs(dr), Math.abs(dc)) !== 1);
+            g.reserved[r + dr][c + dc] = true;
+          }
+        }
+      }
+    }
+    // dark module + reserve format areas
+    g.mods[g.size - 8][8] = true; g.reserved[g.size - 8][8] = true;
+    for (var i = 0; i <= 8; i++) {
+      if (!g.reserved[8][i]) { g.reserved[8][i] = true; g.mods[8][i] = false; }
+      if (!g.reserved[i][8]) { g.reserved[i][8] = true; g.mods[i][8] = false; }
+    }
+    for (var i = 0; i < 8; i++) {
+      if (!g.reserved[8][g.size - 1 - i]) { g.reserved[8][g.size - 1 - i] = true; g.mods[8][g.size - 1 - i] = false; }
+      if (!g.reserved[g.size - 1 - i][8]) { g.reserved[g.size - 1 - i][8] = true; g.mods[g.size - 1 - i][8] = false; }
+    }
+    // version info blocks for version 7+
+    if (version >= 7) {
+      // 18 bits: 6 version bits + 12 BCH(18,6) bits, generator 0x1F25.
+      var rem = version;
+      for (var i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1F25);
+      var bits = ((version << 12) | rem) & 0x3FFFF;
+      for (var i = 0; i < 18; i++) {
+        var bit = ((bits >>> i) & 1) === 1;
+        var r = Math.floor(i / 3), c = g.size - 11 + (i % 3);
+        g.mods[r][c] = bit; g.reserved[r][c] = true;
+        g.mods[c][r] = bit; g.reserved[c][r] = true;
+      }
+    }
+  }
+
+  function placeData(g, bytes) {
+    var bitIdx = 0, upward = true;
+    for (var right = g.size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;   // skip vertical timing column
+      for (var v = 0; v < g.size; v++) {
+        var row = upward ? g.size - 1 - v : v;
+        for (var k = 0; k < 2; k++) {
+          var col = right - k;
+          if (g.reserved[row][col]) continue;
+          var bit = false;
+          if (bitIdx < bytes.length * 8) bit = ((bytes[bitIdx >>> 3] >>> (7 - (bitIdx & 7))) & 1) === 1;
+          g.mods[row][col] = bit;
+          bitIdx++;
+        }
+      }
+      upward = !upward;
+    }
+  }
+
+  function maskFn(m, r, c) {
+    switch (m) {
+      case 0: return (r + c) % 2 === 0;
+      case 1: return r % 2 === 0;
+      case 2: return c % 3 === 0;
+      case 3: return (r + c) % 3 === 0;
+      case 4: return (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0;
+      case 5: return ((r * c) % 2) + ((r * c) % 3) === 0;
+      case 6: return (((r * c) % 2) + ((r * c) % 3)) % 2 === 0;
+      default: return (((r + c) % 2) + ((r * c) % 3)) % 2 === 0;
+    }
+  }
+
+  function setFormat(g, ecl, mask) {
+    var eclBits = (ecl === "M") ? 0 : 1;                 // L=01, M=00
+    var data = (eclBits << 3) | mask, rem = data;
+    for (var i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+    var bits = ((data << 10) | rem) ^ 0x5412;
+    for (var i = 0; i < 15; i++) {
+      var bit = ((bits >>> i) & 1) === 1;
+      if (i < 6) g.mods[i][8] = bit;
+      else if (i < 8) g.mods[i + 1][8] = bit;
+      else g.mods[g.size - 15 + i][8] = bit;
+      if (i < 8) g.mods[8][g.size - 1 - i] = bit;
+      else if (i < 9) g.mods[8][15 - i - 1 + 1] = bit;
+      else g.mods[8][15 - i - 1] = bit;
+    }
+    g.mods[g.size - 8][8] = true;
+  }
+
+  function penalty(g) {
+    var n = g.size, score = 0, i, j;
+    // rule 1: runs of 5+
+    for (i = 0; i < n; i++) {
+      for (var dir = 0; dir < 2; dir++) {
+        var run = 1, prev = null;
+        for (j = 0; j < n; j++) {
+          var v = dir === 0 ? g.mods[i][j] : g.mods[j][i];
+          if (v === prev) { run++; if (run === 5) score += 3; else if (run > 5) score += 1; }
+          else { run = 1; prev = v; }
+        }
+      }
+    }
+    // rule 2: 2x2 blocks
+    for (i = 0; i < n - 1; i++) for (j = 0; j < n - 1; j++) {
+      var a = g.mods[i][j];
+      if (a === g.mods[i][j + 1] && a === g.mods[i + 1][j] && a === g.mods[i + 1][j + 1]) score += 3;
+    }
+    // rule 3: finder-like patterns
+    var pat = [true, false, true, true, true, false, true];
+    function match(get) {
+      var c = 0;
+      for (var s = 0; s + 7 <= n; s++) {
+        var ok = true;
+        for (var k = 0; k < 7; k++) if (get(s + k) !== pat[k]) { ok = false; break; }
+        if (!ok) continue;
+        var before = true, after = true;
+        for (var k = 1; k <= 4; k++) { if (s - k >= 0 && get(s - k)) before = false; if (s + 6 + k < n && get(s + 6 + k)) after = false; }
+        if (before || after) c++;
+      }
+      return c;
+    }
+    for (i = 0; i < n; i++) {
+      score += 40 * match(function (k) { return g.mods[i][k]; });
+      score += 40 * match(function (k) { return g.mods[k][i]; });
+    }
+    // rule 4: dark/light balance
+    var dark = 0;
+    for (i = 0; i < n; i++) for (j = 0; j < n; j++) if (g.mods[i][j]) dark++;
+    score += Math.floor(Math.abs(dark * 100 / (n * n) - 50) / 5) * 10;
+    return score;
+  }
+
+  /* Returns a 2D array of booleans. ecl is "L" or "M". */
+  function encode(text, ecl) {
+    ecl = ecl === "M" ? "M" : "L";
+    var bytes = utf8Bytes(text), version = 0;
+    for (var v = 1; v <= 40; v++) {
+      var lenBits = v < 10 ? 8 : 16;
+      if (capacity(v, ecl) * 8 >= 4 + lenBits + bytes.length * 8) { version = v; break; }
+    }
+    if (!version) throw new Error("Too much data for one QR code.");
+
+    var payload = interleave(version, ecl, createData(version, ecl, bytes));
+    var best = null, bestScore = Infinity;
+    for (var mask = 0; mask < 8; mask++) {
+      var g = makeMatrix(version);
+      setFunctionPatterns(g, version);
+      placeData(g, payload);
+      for (var r = 0; r < g.size; r++) for (var c = 0; c < g.size; c++) {
+        if (!g.reserved[r][c] && maskFn(mask, r, c)) g.mods[r][c] = !g.mods[r][c];
+      }
+      setFormat(g, ecl, mask);
+      var sc = penalty(g);
+      if (sc < bestScore) { bestScore = sc; best = g; }
+    }
+    return best.mods.map(function (row) { return row.map(function (v) { return !!v; }); });
+  }
+
+  return { encode: encode };
+})();
+
+
+/* ===========================================================================
+   TREE REGISTER — every scan can be saved as a numbered, named tree, and each
+   one gets a printable QR tag. Scanning that tag on ANY device shows the
+   tree's details, because the details are encoded INTO the QR code itself.
+   There is no database and no account: the QR code IS the record.
+
+   HONEST LIMIT: a QR code holds at most about 2,900 characters. A photograph
+   is tens of thousands. So the tag carries the tree's DETAILS but not its
+   PICTURE. The photo is kept in this browser's own storage, so you see it in
+   your own register; someone scanning the tag elsewhere sees everything
+   except the photo.
+   =========================================================================== */
+const REGISTER_KEY = "campuscarbon-tree-register";
+const REGISTER_THUMB_PX = 320;   // small enough that ~150 trees fit in storage
+
+function getRegister() {
+  try { const raw = localStorage.getItem(REGISTER_KEY); return raw ? JSON.parse(raw) : []; }
+  catch (e) { return []; }
+}
+function saveRegister(list) {
+  try { localStorage.setItem(REGISTER_KEY, JSON.stringify(list)); return true; }
+  catch (e) { return false; }   // quota exceeded
+}
+
+/* Shrink a scan photo down to a thumbnail. Full photos would fill the
+   browser's ~5 MB of storage after about 30 trees. */
+function makeThumb(dataUrl, cb) {
+  try {
+    const img = new Image();
+    img.onload = function () {
+      const scale = Math.min(1, REGISTER_THUMB_PX / Math.max(img.width, img.height));
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(img.width * scale);
+      cv.height = Math.round(img.height * scale);
+      cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+      cb(cv.toDataURL("image/jpeg", 0.6));
+    };
+    img.onerror = function () { cb(null); };
+    img.src = dataUrl;
+  } catch (e) { cb(null); }
+}
+
+/* Compact record for the QR code.
+   A pipe-delimited string, NOT JSON. JSON key names and quotes cost about
+   130 characters here, which pushed the code to version 12 — dense enough
+   that it failed to scan when printed small or held at an angle. Stripping
+   that overhead brings it down to a version that reads easily in the field.
+   Order matters and must never be rearranged; the leading "1" is a format
+   version so older tags keep working if this ever changes. */
+const HABIT_CODE = { Tree: "T", Palm: "P", Shrub: "S", Herb: "H", Climber: "C", Creeper: "R", Grass: "G", Bamboo: "B", Succulent: "U", "Aquatic plant": "A", Fern: "F", Plant: "O" };
+const CODE_HABIT = (function () { const m = {}; for (const k in HABIT_CODE) m[HABIT_CODE[k]] = k; return m; })();
+const SITE_CODE = { open: "o", normal: "n", shaded: "s", poor: "p", pot: "t" };
+const CODE_SITE = (function () { const m = {}; for (const k in SITE_CODE) m[SITE_CODE[k]] = k; return m; })();
+
+function cleanField(v) {
+  return String(v == null ? "" : v).replace(/[|]/g, "/").replace(/\s+/g, " ").trim();
+}
+
+function treeToPayload(t) {
+  // "roughly 13 to 25 years" -> "13-25", saving 17 characters
+  let age = cleanField(t.ageText).replace(/roughly\s*/i, "").replace(/about\s*/i, "")
+    .replace(/\s*to\s*/i, "-").replace(/\s*years?/i, "");
+  return [
+    "1",
+    cleanField(t.number),
+    cleanField(t.name),
+    cleanField(t.commonName),
+    cleanField(t.botanicalName),
+    cleanField(t.tamilName),
+    HABIT_CODE[t.habit] || "",
+    cleanField(t.date).replace(/-/g, "").slice(2),   // 2026-08-15 -> 260815
+    t.girthCm ? String(Math.round(t.girthCm)) : "",
+    t.heightM ? String(Math.round(t.heightM * 10) / 10) : "",
+    age,
+    t.co2Kg ? String(Math.round(t.co2Kg)) : "",
+    t.o2Kg ? String(Math.round(t.o2Kg)) : "",
+    SITE_CODE[t.site] || "",
+  ].join("|");
+}
+
+function payloadToTree(str) {
+  const f = String(str).split("|");
+  const d = f[7] || "";
+  const num = function (x) { const n = Number(x); return isFinite(n) && n > 0 ? n : null; };
+  return {
+    number: f[1] || "",
+    name: f[2] || "",
+    commonName: f[3] || "",
+    botanicalName: f[4] || "",
+    tamilName: f[5] || "",
+    habit: CODE_HABIT[f[6]] || "",
+    date: d.length === 6 ? "20" + d.slice(0, 2) + "-" + d.slice(2, 4) + "-" + d.slice(4, 6) : "",
+    girthCm: num(f[8]),
+    heightM: num(f[9]),
+    ageText: f[10] ? "roughly " + f[10].replace("-", " to ") + " years" : "",
+    co2Kg: num(f[11]),
+    o2Kg: num(f[12]),
+    site: CODE_SITE[f[13]] || "",
+  };
+}
+
+/* URL-safe base64 that survives UTF-8 (Tamil names) intact. */
+function b64urlEncode(str) {
+  const b = btoa(unescape(encodeURIComponent(str)));
+  return b.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function b64urlDecode(str) {
+  let b = String(str).replace(/-/g, "+").replace(/_/g, "/");
+  while (b.length % 4) b += "=";
+  return decodeURIComponent(escape(atob(b)));
+}
+
+function treeTagURL(t) {
+  const base = location.origin + location.pathname;
+  return base + "#tree=" + b64urlEncode(treeToPayload(t));
+}
+
+/* Draw the QR plus the tree number and name onto a canvas, so the printed
+   tag is useful even before anyone scans it. */
+function buildTagCanvas(t) {
+  const url = treeTagURL(t);
+  let mods;
+  try { mods = QR.encode(url, "L"); }
+  catch (e) { return null; }
+
+  const n = mods.length, quiet = 4, cell = 8;
+  const qrPx = (n + quiet * 2) * cell;
+  const pad = 24, textH = 96;
+  const cv = document.createElement("canvas");
+  cv.width = qrPx + pad * 2;
+  cv.height = qrPx + pad * 2 + textH;
+  const g = cv.getContext("2d");
+  g.fillStyle = "#ffffff";
+  g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = "#000000";
+  for (let r = 0; r < n; r++) {
+    for (let c = 0; c < n; c++) {
+      if (mods[r][c]) g.fillRect(pad + (c + quiet) * cell, pad + (r + quiet) * cell, cell, cell);
+    }
+  }
+  g.fillStyle = "#0b3d2c";
+  g.textAlign = "center";
+  g.font = "bold 30px Inter, Arial, sans-serif";
+  g.fillText(String(t.number || "").slice(0, 18), cv.width / 2, qrPx + pad + 34);
+  g.font = "22px Inter, Arial, sans-serif";
+  g.fillStyle = "#3f5c50";
+  g.fillText(String(t.name || t.commonName || "").slice(0, 26), cv.width / 2, qrPx + pad + 66);
+  g.font = "16px Inter, Arial, sans-serif";
+  g.fillStyle = "#7a8f85";
+  g.fillText("CampusCarbon", cv.width / 2, qrPx + pad + 90);
+  return cv;
+}
+
+function downloadTag(id) {
+  const t = getRegister().find(function (x) { return x.id === id; });
+  if (!t) return;
+  const cv = buildTagCanvas(t);
+  if (!cv) { alert("Could not build the QR tag for this tree."); return; }
+  const a = document.createElement("a");
+  a.href = cv.toDataURL("image/png");
+  a.download = "tree-tag-" + String(t.number || t.id).replace(/[^\w-]/g, "") + ".png";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+/* ---- campus totals ---- */
+function registerTotals(list) {
+  let co2 = 0, o2 = 0, withCarbon = 0;
+  const species = {};
+  list.forEach(function (t) {
+    if (t.co2Kg) { co2 += t.co2Kg; withCarbon++; }
+    if (t.o2Kg) o2 += t.o2Kg;
+    const key = t.commonName || t.botanicalName || "Unidentified";
+    species[key] = (species[key] || 0) + 1;
+  });
+  return { count: list.length, co2Kg: co2, o2Kg: o2, withCarbon: withCarbon, species: species };
+}
+
+
+/* ---------------------------------------------------------------------- */
+/* Tree Register — screens                                                 */
+/* ---------------------------------------------------------------------- */
+let registerState = { open: null, saving: false, msg: "" };
+
+function fmtTotal(kg) {
+  if (!isFinite(kg) || !kg) return "0 kg";
+  if (kg >= 1000) return (kg / 1000).toFixed(2) + " t";
+  return Math.round(kg) + " kg";
+}
+
+function registerHTML() {
+  // A QR tag was scanned — show that tree, whoever's device this is.
+  if (state.passport) return passportHTML(state.passport);
+  if (registerState.open) return registerDetailHTML(registerState.open);
+
+  const list = getRegister();
+  const tot = registerTotals(list);
+
+  if (!list.length) {
+    return `
+      <div class="app-header">
+        <h2>Tree Register</h2>
+        <p>Every tree you scan can be saved here with a number and a name, and each one gets a printable QR tag. Anyone who scans that tag sees the tree's details — no app and no account needed.</p>
+      </div>
+      <div class="panel" style="text-align:center;padding:36px 20px">
+        <h3 style="margin:0 0 8px;font-size:15px">No trees recorded yet</h3>
+        <p style="font-size:13.5px;color:var(--ink-soft);line-height:1.65;margin:0 0 18px">
+          Go to <b>Scan Plant</b>, photograph a tree, and tap <b>Save to Tree Register</b> at the bottom of the result.
+        </p>
+        <button class="btn-gradient" data-goto-scan>Scan a tree</button>
+      </div>`;
+  }
+
+  const speciesRows = Object.keys(tot.species)
+    .sort(function (a, b) { return tot.species[b] - tot.species[a]; })
+    .map(function (k) { return `<span class="scan-pill" style="margin:0 6px 6px 0;display:inline-block">${esc(k)} &times;${tot.species[k]}</span>`; })
+    .join("");
+
+  const cards = list.slice().reverse().map(function (t) {
+    return `
+      <button class="panel" data-open-tree="${esc(t.id)}" style="text-align:left;cursor:pointer;padding:0;overflow:hidden;border:1px solid var(--line)">
+        ${t.thumb
+          ? `<img src="${esc(t.thumb)}" alt="" style="width:100%;height:120px;object-fit:cover;display:block">`
+          : `<div style="height:120px;background:#eef3f0;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:12px">No photo</div>`}
+        <div style="padding:12px 14px">
+          <div style="font-size:12px;color:var(--ink-soft);letter-spacing:.04em">${esc(t.number || "—")}</div>
+          <div style="font-weight:600;font-size:14px;margin:2px 0 4px">${esc(t.name || t.commonName || "Unnamed tree")}</div>
+          <div style="font-size:12.5px;color:var(--ink-soft)">${esc(t.commonName || "")}${t.co2Kg ? " · " + fmtTotal(t.co2Kg) + " CO2" : ""}</div>
+        </div>
+      </button>`;
+  }).join("");
+
+  return `
+    <div class="app-header">
+      <h2>Tree Register</h2>
+      <p>${list.length} tree${list.length === 1 ? "" : "s"} recorded on this device. Tap any card for its details and printable QR tag.</p>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 14px;font-size:15px">Campus totals</h3>
+      <div class="scan-row"><span>Trees recorded</span><b>${tot.count}</b></div>
+      <div class="scan-row"><span>CO<sub>2</sub> stored</span><b>${fmtTotal(tot.co2Kg)}</b></div>
+      <div class="scan-row"><span>Oxygen released</span><b>${fmtTotal(tot.o2Kg)}</b></div>
+      <div style="margin-top:14px">${speciesRows}</div>
+      <p style="font-size:12px;color:var(--ink-soft);line-height:1.6;margin:14px 0 0">
+        Totals cover the ${tot.withCarbon} tree${tot.withCarbon === 1 ? "" : "s"} that had a carbon figure. Palms, shrubs, herbs and creepers are counted in the tree total but contribute no stored carbon — only long-lived woody growth is counted as sequestration.
+      </p>
+      <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-solid" data-export-register>Download inventory (PDF)</button>
+        <button class="btn-ghost-dark" data-goto-scan>Add another tree</button>
+      </div>
+    </div>
+
+    <div class="reg-grid">${cards}</div>
+
+    <p style="font-size:12px;color:var(--ink-soft);line-height:1.6;margin:18px 2px 0">
+      This register is stored in this browser on this device only. Clearing your browser data will erase it, and it will not appear on another phone. Download the PDF to keep a permanent copy. The QR tags work anywhere, because each tag carries its own tree's details inside it.
+    </p>`;
+}
+
+function registerDetailHTML(id) {
+  const t = getRegister().find(function (x) { return x.id === id; });
+  if (!t) { registerState.open = null; return registerHTML(); }
+
+  const row = (label, val) => val
+    ? `<div class="scan-row"><span>${label}</span><b>${esc(String(val))}</b></div>` : "";
+
+  return `
+    <div class="app-header">
+      <button class="btn-ghost-dark" data-reg-back style="margin-bottom:14px">&larr; All trees</button>
+      <h2>${esc(t.name || t.commonName || "Tree")}</h2>
+      <p>${esc(t.number || "")}${t.date ? " · recorded " + esc(t.date) : ""}</p>
+    </div>
+
+    ${t.thumb ? `<div class="panel" style="padding:0;overflow:hidden"><img src="${esc(t.thumb)}" alt="" style="width:100%;display:block"></div>` : ""}
+
+    <div class="panel">
+      <h3 style="margin:0 0 12px;font-size:15px">Details</h3>
+      ${row("Tree number", t.number)}
+      ${row("Name", t.name)}
+      ${row("Species", t.commonName)}
+      ${row("Botanical name", t.botanicalName)}
+      ${row("Tamil name", t.tamilName)}
+      ${row("Growth habit", t.habit)}
+      ${row("Trunk girth", t.girthCm ? Math.round(t.girthCm) + " cm" : "")}
+      ${row("Height", t.heightM ? Number(t.heightM).toFixed(1) + " m" : "")}
+      ${row("Estimated age", t.ageText)}
+      ${row("CO2 stored", t.co2Kg ? fmtTotal(t.co2Kg) : "")}
+      ${row("Oxygen released", t.o2Kg ? fmtTotal(t.o2Kg) : "")}
+      ${row("Recorded", t.date)}
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 4px;font-size:15px">QR tag for this tree</h3>
+      <p style="font-size:13px;color:var(--ink-soft);line-height:1.65;margin:0 0 16px">
+        Print this, laminate it, and tie it to the trunk. Anyone can scan it with Google Lens or any QR reader and see this tree's details. The details are stored inside the code itself, so it works with no internet and no app.
+      </p>
+      <div id="reg-qr" style="text-align:center;padding:10px 0"></div>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn-solid" data-download-tag="${esc(t.id)}">Download QR tag (PNG)</button>
+        <button class="btn-ghost-dark" data-delete-tree="${esc(t.id)}">Remove this tree</button>
+      </div>
+      <p style="font-size:12px;color:var(--ink-soft);line-height:1.6;margin:14px 0 0">
+        The tag carries the tree's details but not its photograph — a QR code holds a few thousand characters and a photo is far larger. The photo stays on this device.
+      </p>
+    </div>`;
+}
+
+/* The view someone gets after scanning a tag. Works on any device. */
+function passportHTML(t) {
+  const local = getRegister().find(function (x) {
+    return x.number && t.number && x.number === t.number;
+  });
+  const row = (label, val) => val
+    ? `<div class="scan-row"><span>${label}</span><b>${esc(String(val))}</b></div>` : "";
+
+  return `
+    <div class="app-header">
+      <h2>${esc(t.name || t.commonName || "Tree")}</h2>
+      <p>${esc(t.number || "")} · scanned from a CampusCarbon tree tag</p>
+    </div>
+
+    ${local && local.thumb ? `<div class="panel" style="padding:0;overflow:hidden"><img src="${esc(local.thumb)}" alt="" style="width:100%;display:block"></div>` : ""}
+
+    <div class="panel">
+      ${row("Tree number", t.number)}
+      ${row("Name", t.name)}
+      ${row("Species", t.commonName)}
+      ${row("Botanical name", t.botanicalName)}
+      ${row("Tamil name", t.tamilName)}
+      ${row("Growth habit", t.habit)}
+      ${row("Trunk girth", t.girthCm ? t.girthCm + " cm" : "")}
+      ${row("Height", t.heightM ? t.heightM + " m" : "")}
+      ${row("Estimated age", t.ageText)}
+      ${row("CO2 stored", t.co2Kg ? fmtTotal(t.co2Kg) : "")}
+      ${row("Oxygen released", t.o2Kg ? fmtTotal(t.o2Kg) : "")}
+      ${row("Recorded", t.date)}
+      <p style="font-size:12px;color:var(--ink-soft);line-height:1.6;margin:16px 0 0">
+        Ages and carbon figures are approximate estimates, not measurements. Stored CO<sub>2</sub> is not a tradable carbon credit.
+        ${local ? "" : "The photograph of this tree is kept on the device that recorded it, so it is not shown here."}
+      </p>
+    </div>
+
+    <div class="panel" style="text-align:center">
+      <p style="font-size:13.5px;line-height:1.65;margin:0 0 14px">Want to record your own trees?</p>
+      <button class="btn-gradient" data-passport-exit>Open CampusCarbon</button>
+    </div>`;
+}
+
+
+/* Switch tab from code (the nav buttons do this themselves on click). */
+function goToTab(id) {
+  state.tab = id;
+  renderAppContent();
+  document.querySelectorAll("[data-apptab]").forEach(function (b) {
+    b.classList.toggle("active", b.dataset.apptab === id);
+  });
+}
+
+function bindRegisterEvents() {
+  const q = function (sel) { return document.querySelector(sel); };
+
+  document.querySelectorAll("[data-goto-scan]").forEach(function (b) {
+    b.addEventListener("click", function () { registerState.open = null; goToTab("scan"); });
+  });
+  document.querySelectorAll("[data-open-tree]").forEach(function (b) {
+    b.addEventListener("click", function () { registerState.open = b.dataset.openTree; renderAppContent(); });
+  });
+  const back = q("[data-reg-back]");
+  if (back) back.addEventListener("click", function () { registerState.open = null; renderAppContent(); });
+
+  const exit = q("[data-passport-exit]");
+  if (exit) exit.addEventListener("click", function () {
+    state.passport = null;
+    if (location.hash) history.replaceState(null, "", location.pathname);
+    renderAppContent();
+  });
+
+  const dl = q("[data-download-tag]");
+  if (dl) dl.addEventListener("click", function () { downloadTag(dl.dataset.downloadTag); });
+
+  const del = q("[data-delete-tree]");
+  if (del) del.addEventListener("click", function () {
+    const id = del.dataset.deleteTree;
+    const list = getRegister().filter(function (x) { return x.id !== id; });
+    saveRegister(list);
+    registerState.open = null;
+    renderAppContent();
+  });
+
+  const exp = q("[data-export-register]");
+  if (exp) exp.addEventListener("click", exportRegisterPDF);
+
+  // Draw the QR into the detail view
+  const holder = document.getElementById("reg-qr");
+  if (holder && registerState.open) {
+    const t = getRegister().find(function (x) { return x.id === registerState.open; });
+    if (t) {
+      const cv = buildTagCanvas(t);
+      if (cv) {
+        cv.style.maxWidth = "260px";
+        cv.style.width = "100%";
+        cv.style.height = "auto";
+        cv.style.border = "1px solid var(--line)";
+        cv.style.borderRadius = "10px";
+        holder.appendChild(cv);
+      } else {
+        holder.innerHTML = '<p style="font-size:13px;color:#b3261e">This tree has too much detail to fit in one QR code.</p>';
+      }
+    }
+  }
+}
+
+/* ---- Save a finished scan into the register ---- */
+function saveScanToRegister(number, name) {
+  const r = scanState.result || {};
+  const id = r.identification || {};
+  const meas = r.measured || {};
+  const gf = lookupGrowthFactor(id);
+  const wd = lookupWoodDensity(id);
+  const site = siteInfo(meas.site);
+  const habit = habitInfo(id.growthHabit);
+
+  let ageText = "", co2 = null, o2 = null;
+  const dims = id.dimensions || {};
+  const girth = Number(meas.girthCm) || (Number(dims.trunkDiameterCm) > 0 ? Number(dims.trunkDiameterCm) * Math.PI : null);
+  const height = Number(meas.heightM) || Number(dims.heightM) || Number(id.typicalHeightM) || null;
+
+  if (habit && habit.carbon && girth && !girthLooksWrong(girth)) {
+    const m = treeMetrics(girth, height, gf.low, gf.high, wd.rho);
+    if (m) {
+      let lo = m.ageLow, hi = m.ageHigh;
+      if (lo && hi && site.mult !== 1) { lo *= site.mult; hi *= site.mult; }
+      if (id.looksOlderThanGirth === true && hi) hi *= 1.5;
+      ageText = ageRangeText(lo, hi) || "";
+      if (m.carbon) { co2 = m.carbon.co2Kg; o2 = m.carbon.o2Kg; }
+    }
+  } else if (id.agingMethod === "palm" && height) {
+    const p = palmMetrics(height, Number(meas.scarsPerMetre) || null, id.palmLeavesPerYear, id.palmPreTrunkYears);
+    if (p) ageText = ageRangeText(p.ageLow, p.ageHigh) || "";
+  }
+
+  const record = {
+    id: "t" + Date.now() + Math.floor(Math.random() * 1000),
+    number: String(number || "").slice(0, 20),
+    name: String(name || "").slice(0, 40),
+    commonName: id.commonName || "",
+    botanicalName: id.botanicalName || "",
+    tamilName: id.tamilName || "",
+    habit: habit ? habit.label : "",
+    girthCm: girth || null,
+    heightM: height || null,
+    site: meas.site || "",
+    ageText: ageText,
+    co2Kg: co2,
+    o2Kg: o2,
+    date: new Date().toISOString().slice(0, 10),
+    thumb: null,
+  };
+
+  const first = SCAN_SLOTS.map(function (sl) { return scanState.photos[sl.key]; }).filter(Boolean)[0];
+  const finish = function () {
+    const list = getRegister();
+    list.push(record);
+    if (!saveRegister(list)) {
+      // Storage full — keep the record but drop the photo to make room.
+      record.thumb = null;
+      if (!saveRegister(list)) {
+        alert("This device's storage is full. Download the inventory PDF, then remove some trees.");
+        return;
+      }
+    }
+    registerState.open = record.id;
+    goToTab("register");
+  };
+
+  if (first && first.data) makeThumb(first.data, function (th) { record.thumb = th; finish(); });
+  else finish();
+}
+
+/* ---- Inventory PDF ---- */
+function exportRegisterPDF() {
+  if (!window.jspdf) { alert("PDF library failed to load — check your internet connection."); return; }
+  const list = getRegister();
+  if (!list.length) return;
+  const tot = registerTotals(list);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  doc.setFontSize(18); doc.setTextColor(11, 61, 44);
+  doc.text("Campus Carbon Inventory", 14, 20);
+  doc.setFontSize(10); doc.setTextColor(90, 90, 90);
+  doc.text("Generated by CampusCarbon on " + new Date().toISOString().slice(0, 10), 14, 27);
+
+  doc.setFontSize(11); doc.setTextColor(20, 20, 20);
+  let y = 40;
+  doc.text("Trees recorded: " + tot.count, 14, y); y += 7;
+  doc.text("CO2 stored: " + fmtTotal(tot.co2Kg), 14, y); y += 7;
+  doc.text("Oxygen released: " + fmtTotal(tot.o2Kg), 14, y); y += 10;
+
+  doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+  const wrap = doc.splitTextToSize(
+    "Ages and carbon figures are approximate estimates calculated from trunk measurements using the Chave et al. 2014 pantropical allometric equation. They are not measurements, and stored CO2 is not a tradable carbon credit — credits under CCTS require verified, additional projects. Only woody trees contribute stored carbon; palms, shrubs, herbs and creepers are listed but contribute none.", 182);
+  doc.text(wrap, 14, y); y += wrap.length * 4 + 6;
+
+  doc.setFontSize(10); doc.setTextColor(20, 20, 20);
+  doc.text("No.", 14, y); doc.text("Name", 34, y); doc.text("Species", 78, y);
+  doc.text("Age", 130, y); doc.text("CO2", 168, y);
+  y += 2; doc.setDrawColor(200); doc.line(14, y, 196, y); y += 6;
+
+  doc.setFontSize(9);
+  list.forEach(function (t) {
+    if (y > 275) { doc.addPage(); y = 20; }
+    doc.text(String(t.number || "-").slice(0, 10), 14, y);
+    doc.text(String(t.name || "-").slice(0, 22), 34, y);
+    doc.text(String(t.commonName || "-").slice(0, 26), 78, y);
+    doc.text(String(t.ageText || "-").replace("roughly ", "").slice(0, 18), 130, y);
+    doc.text(t.co2Kg ? fmtTotal(t.co2Kg) : "-", 168, y);
+    y += 6;
+  });
+
+  doc.save("campus-carbon-inventory-" + new Date().toISOString().slice(0, 10) + ".pdf");
+}
+
+/* ---- A QR tag was scanned: #tree=... ---- */
+function readTreeTagFromURL() {
+  try {
+    const m = (location.hash || "").match(/[#&]tree=([^&]+)/);
+    if (!m) return null;
+    return payloadToTree(b64urlDecode(m[1]));
+  } catch (e) { return null; }
+}
+
 /* ---------------------------------------------------------------------- */
 const APP_TABS = [
   { id: "calc", label: "Calculator", icon: '<rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" x2="16" y1="6" y2="6"/><path d="M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>' },
@@ -435,6 +1270,7 @@ const APP_TABS = [
   { id: "plan", label: "Plan a Project", icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>' },
   { id: "help", label: "Help Assistant", icon: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>' },
   { id: "scan", label: "Scan Plant", icon: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>' },
+  { id: "register", label: "Tree Register", icon: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM18 18h3v3h-3z"/>' },
 ];
 
 function appShellHTML() {
@@ -474,6 +1310,7 @@ function renderAppContent() {
   else if (state.tab === "plan") { el.innerHTML = planHTML(); bindPlanEvents(); updatePlanResults(); }
   else if (state.tab === "help") { el.innerHTML = helpHTML(); bindHelpEvents(); }
   else if (state.tab === "scan") { el.innerHTML = scanHTML(); bindScanEvents(); }
+  else if (state.tab === "register") { el.innerHTML = registerHTML(); bindRegisterEvents(); }
   if (window.scrollTo) window.scrollTo({ top: document.querySelector(".app-subnav").offsetHeight, behavior: "auto" });
 }
 
@@ -2485,7 +3322,29 @@ function scanResultHTML(r) {
     </div>`
         : ""
     }
-    `}`;
+    `}
+
+    ${notLiving ? "" : `
+    <div class="panel">
+      <h3 style="margin:0 0 4px;font-size:15px">Save this tree</h3>
+      <p style="font-size:13px;color:var(--ink-soft);line-height:1.65;margin:0 0 16px">
+        Give it a number and a name and it joins your Tree Register, with a printable QR tag anyone can scan. This uses no extra AI credits — everything above is reused.
+      </p>
+      <div class="field-grid">
+        <div class="field">
+          <label>Tree number</label>
+          <input type="text" id="save-number" placeholder="e.g. SCSVMV-012" maxlength="20">
+        </div>
+        <div class="field">
+          <label>Name for this tree</label>
+          <input type="text" id="save-name" placeholder="e.g. Neem by the library" maxlength="40">
+        </div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn-gradient" id="save-to-register">Save to Tree Register</button>
+      </div>
+      <p id="save-msg" style="font-size:13px;color:#b3261e;margin:12px 0 0"></p>
+    </div>`}`;
 }
 
 /* Shrink the photo before upload — keeps it fast and cheap */
@@ -2588,6 +3447,20 @@ function bindScanEvents() {
 
   const goBtn = document.getElementById("scan-go");
   if (goBtn) goBtn.addEventListener("click", runScan);
+
+  const saveBtn = document.getElementById("save-to-register");
+  if (saveBtn) {
+    saveBtn.addEventListener("click", function () {
+      const num = (document.getElementById("save-number") || {}).value || "";
+      const nm = (document.getElementById("save-name") || {}).value || "";
+      const msg = document.getElementById("save-msg");
+      if (!num.trim()) {
+        if (msg) msg.textContent = "Give the tree a number first — it is what the QR tag is labelled with.";
+        return;
+      }
+      saveScanToRegister(num.trim(), nm.trim());
+    });
+  }
 }
 
 function runScan() {
