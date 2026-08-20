@@ -744,6 +744,7 @@ var QR = (function () {
    =========================================================================== */
 const REGISTER_KEY = "campuscarbon-tree-register";
 const REGISTER_THUMB_PX = 320;   // small enough that ~150 trees fit in storage
+const TAG_PHOTO_PX = 48;         // the picture that fits INSIDE a QR code
 
 function getRegister() {
   try { const raw = localStorage.getItem(REGISTER_KEY); return raw ? JSON.parse(raw) : []; }
@@ -760,16 +761,28 @@ function makeThumb(dataUrl, cb) {
   try {
     const img = new Image();
     img.onload = function () {
+      // Big thumbnail: shown on the card in this device's register.
       const scale = Math.min(1, REGISTER_THUMB_PX / Math.max(img.width, img.height));
       const cv = document.createElement("canvas");
       cv.width = Math.round(img.width * scale);
       cv.height = Math.round(img.height * scale);
       cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-      cb(cv.toDataURL("image/jpeg", 0.6));
+
+      // Tiny square: small enough to travel inside the QR code itself.
+      const sq = document.createElement("canvas");
+      sq.width = sq.height = TAG_PHOTO_PX;
+      const side = Math.min(img.width, img.height);
+      sq.getContext("2d").drawImage(
+        img, (img.width - side) / 2, (img.height - side) / 2, side, side,
+        0, 0, TAG_PHOTO_PX, TAG_PHOTO_PX
+      );
+      const tagPhoto = sq.toDataURL("image/jpeg", 0.3).replace(/^data:image\/jpeg;base64,/, "");
+
+      cb(cv.toDataURL("image/jpeg", 0.6), tagPhoto);
     };
-    img.onerror = function () { cb(null); };
+    img.onerror = function () { cb(null, null); };
     img.src = dataUrl;
-  } catch (e) { cb(null); }
+  } catch (e) { cb(null, null); }
 }
 
 /* Compact record for the QR code.
@@ -788,7 +801,7 @@ function cleanField(v) {
   return String(v == null ? "" : v).replace(/[|]/g, "/").replace(/\s+/g, " ").trim();
 }
 
-function treeToPayload(t) {
+function treeToPayload(t, photo) {
   // "roughly 13 to 25 years" -> "13-25", saving 17 characters
   let age = cleanField(t.ageText).replace(/roughly\s*/i, "").replace(/about\s*/i, "")
     .replace(/\s*to\s*/i, "-").replace(/\s*years?/i, "");
@@ -807,6 +820,7 @@ function treeToPayload(t) {
     t.co2Kg ? String(Math.round(t.co2Kg)) : "",
     t.o2Kg ? String(Math.round(t.o2Kg)) : "",
     SITE_CODE[t.site] || "",
+    photo || "",          // field 14: a tiny JPEG, base64, no data: prefix
   ].join("|");
 }
 
@@ -828,6 +842,7 @@ function payloadToTree(str) {
     co2Kg: num(f[11]),
     o2Kg: num(f[12]),
     site: CODE_SITE[f[13]] || "",
+    photo: f[14] ? "data:image/jpeg;base64," + f[14] : null,
   };
 }
 
@@ -842,18 +857,41 @@ function b64urlDecode(str) {
   return decodeURIComponent(escape(atob(b)));
 }
 
-function treeTagURL(t) {
+function treeTagURL(t, photo) {
   const base = location.origin + location.pathname;
-  return base + "#tree=" + b64urlEncode(treeToPayload(t));
+  return base + "#tree=" + b64urlEncode(treeToPayload(t, photo));
+}
+
+/* A QR code holds about 2,900 characters, so a full photo can never fit — but
+   a very small one can. A 48x48 thumbnail lands around version 20, which still
+   decodes reliably. Anything denser than version 20 gets hard to scan in real
+   life, so we shrink the picture until it fits, and drop it if it never does. */
+const TAG_MAX_VERSION = 20;
+
+function tagModulesFor(t, photo) {
+  const url = treeTagURL(t, photo);
+  const mods = QR.encode(url, "L");
+  return { mods: mods, version: (mods.length - 17) / 4 };
+}
+
+function buildTagModules(t, wantPhoto) {
+  if (wantPhoto && t.tagPhoto) {
+    try {
+      const r = tagModulesFor(t, t.tagPhoto);
+      if (r.version <= TAG_MAX_VERSION) return { mods: r.mods, withPhoto: true, version: r.version };
+    } catch (e) { /* too big — fall through to details only */ }
+  }
+  const r = tagModulesFor(t, null);
+  return { mods: r.mods, withPhoto: false, version: r.version };
 }
 
 /* Draw the QR plus the tree number and name onto a canvas, so the printed
    tag is useful even before anyone scans it. */
-function buildTagCanvas(t) {
-  const url = treeTagURL(t);
-  let mods;
-  try { mods = QR.encode(url, "L"); }
+function buildTagCanvas(t, wantPhoto) {
+  let built;
+  try { built = buildTagModules(t, wantPhoto); }
   catch (e) { return null; }
+  const mods = built.mods;
 
   const n = mods.length, quiet = 4, cell = 8;
   const qrPx = (n + quiet * 2) * cell;
@@ -879,18 +917,22 @@ function buildTagCanvas(t) {
   g.fillText(String(t.name || t.commonName || "").slice(0, 26), cv.width / 2, qrPx + pad + 66);
   g.font = "16px Inter, Arial, sans-serif";
   g.fillStyle = "#7a8f85";
-  g.fillText("CampusCarbon", cv.width / 2, qrPx + pad + 90);
+  g.fillText("CampusCarbon" + (built.withPhoto ? " · photo tag" : ""), cv.width / 2, qrPx + pad + 90);
+  cv.dataWithPhoto = built.withPhoto;
   return cv;
 }
 
-function downloadTag(id) {
+function downloadTag(id, wantPhoto) {
   const t = getRegister().find(function (x) { return x.id === id; });
   if (!t) return;
-  const cv = buildTagCanvas(t);
+  const cv = buildTagCanvas(t, wantPhoto);
   if (!cv) { alert("Could not build the QR tag for this tree."); return; }
+  if (wantPhoto && !cv.dataWithPhoto) {
+    alert("This tree's details are too long to fit a photo in the QR code as well, so the tag was made without it.");
+  }
   const a = document.createElement("a");
   a.href = cv.toDataURL("image/png");
-  a.download = "tree-tag-" + String(t.number || t.id).replace(/[^\w-]/g, "") + ".png";
+  a.download = "tree-tag-" + String(t.number || t.id).replace(/[^\w-]/g, "") + (wantPhoto && cv.dataWithPhoto ? "-photo" : "") + ".png";
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
@@ -920,8 +962,6 @@ function fmtTotal(kg) {
 }
 
 function registerHTML() {
-  // A QR tag was scanned — show that tree, whoever's device this is.
-  if (state.passport) return passportHTML(state.passport);
   if (registerState.open) return registerDetailHTML(registerState.open);
 
   const list = getRegister();
@@ -1028,7 +1068,8 @@ function registerDetailHTML(id) {
       </p>
       <div id="reg-qr" style="text-align:center;padding:10px 0"></div>
       <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-        <button class="btn-solid" data-download-tag="${esc(t.id)}">Download QR tag (PNG)</button>
+        <button class="btn-solid" data-download-tag="${esc(t.id)}">Download tag</button>
+        ${t.tagPhoto ? `<button class="btn-solid" data-download-tag-photo="${esc(t.id)}">Download tag with photo</button>` : ""}
         <button class="btn-ghost-dark" data-delete-tree="${esc(t.id)}">Remove this tree</button>
       </div>
       <p style="font-size:12px;color:var(--ink-soft);line-height:1.6;margin:14px 0 0">
@@ -1037,55 +1078,55 @@ function registerDetailHTML(id) {
     </div>`;
 }
 
-/* The view someone gets after scanning a tag. Works on any device. */
+/* The view someone gets after scanning a tree tag.
+   Deliberately read-only and standalone: no tabs, no calculator, nothing to
+   click into. Somebody standing at a tree with their phone wants to see that
+   tree, not be dropped into an app they did not ask for. */
 function passportHTML(t) {
   const local = getRegister().find(function (x) {
     return x.number && t.number && x.number === t.number;
   });
+  // Best picture available: the full one if this is the device that recorded
+  // it, otherwise the tiny one carried inside the QR code itself.
+  const photo = (local && local.thumb) || t.photo || null;
+  const tiny = !(local && local.thumb) && !!t.photo;
+
   const row = (label, val) => val
     ? `<div class="scan-row"><span>${label}</span><b>${esc(String(val))}</b></div>` : "";
 
   return `
-    <div class="app-header">
-      <h2>${esc(t.name || t.commonName || "Tree")}</h2>
-      <p>${esc(t.number || "")} · scanned from a CampusCarbon tree tag</p>
-    </div>
+    <div class="passport">
+      <div class="passport-head">
+        <span class="passport-num">${esc(t.number || "Tree")}</span>
+        <h1>${esc(t.name || t.commonName || "Tree")}</h1>
+        ${t.commonName ? `<p>${esc(t.commonName)}${t.botanicalName ? " · <i>" + esc(t.botanicalName) + "</i>" : ""}</p>` : ""}
+      </div>
 
-    ${local && local.thumb ? `<div class="panel" style="padding:0;overflow:hidden"><img src="${esc(local.thumb)}" alt="" style="width:100%;display:block"></div>` : ""}
+      ${photo ? `<div class="passport-photo">
+        <img src="${esc(photo)}" alt="${esc(t.name || "Tree")}"${tiny ? ' style="image-rendering:auto;filter:saturate(1.05)"' : ""}>
+        ${tiny ? `<span class="passport-photo-note">Small photo carried inside the QR tag</span>` : ""}
+      </div>` : ""}
 
-    <div class="panel">
-      ${row("Tree number", t.number)}
-      ${row("Name", t.name)}
-      ${row("Species", t.commonName)}
-      ${row("Botanical name", t.botanicalName)}
-      ${row("Tamil name", t.tamilName)}
-      ${row("Growth habit", t.habit)}
-      ${row("Trunk girth", t.girthCm ? t.girthCm + " cm" : "")}
-      ${row("Height", t.heightM ? t.heightM + " m" : "")}
-      ${row("Estimated age", t.ageText)}
-      ${row("CO2 stored", t.co2Kg ? fmtTotal(t.co2Kg) : "")}
-      ${row("Oxygen released", t.o2Kg ? fmtTotal(t.o2Kg) : "")}
-      ${row("Recorded", t.date)}
-      <p style="font-size:12px;color:var(--ink-soft);line-height:1.6;margin:16px 0 0">
+      <div class="passport-card">
+        ${row("Tamil name", t.tamilName)}
+        ${row("Growth habit", t.habit)}
+        ${row("Trunk girth", t.girthCm ? t.girthCm + " cm" : "")}
+        ${row("Height", t.heightM ? t.heightM + " m" : "")}
+        ${row("Estimated age", t.ageText)}
+        ${row("CO2 stored", t.co2Kg ? fmtTotal(t.co2Kg) : "")}
+        ${row("Oxygen released", t.o2Kg ? fmtTotal(t.o2Kg) : "")}
+        ${row("Recorded", t.date)}
+      </div>
+
+      <p class="passport-note">
         Ages and carbon figures are approximate estimates, not measurements. Stored CO<sub>2</sub> is not a tradable carbon credit.
-        ${local ? "" : "The photograph of this tree is kept on the device that recorded it, so it is not shown here."}
       </p>
-    </div>
 
-    <div class="panel" style="text-align:center">
-      <p style="font-size:13.5px;line-height:1.65;margin:0 0 14px">Want to record your own trees?</p>
-      <button class="btn-gradient" data-passport-exit>Open CampusCarbon</button>
+      <div class="passport-foot">
+        <span>CampusCarbon tree tag</span>
+        <button class="btn-ghost-dark" data-passport-exit>Open the full site</button>
+      </div>
     </div>`;
-}
-
-
-/* Switch tab from code (the nav buttons do this themselves on click). */
-function goToTab(id) {
-  state.tab = id;
-  renderAppContent();
-  document.querySelectorAll("[data-apptab]").forEach(function (b) {
-    b.classList.toggle("active", b.dataset.apptab === id);
-  });
 }
 
 function bindRegisterEvents() {
@@ -1108,7 +1149,9 @@ function bindRegisterEvents() {
   });
 
   const dl = q("[data-download-tag]");
-  if (dl) dl.addEventListener("click", function () { downloadTag(dl.dataset.downloadTag); });
+  if (dl) dl.addEventListener("click", function () { downloadTag(dl.dataset.downloadTag, false); });
+  const dlp = q("[data-download-tag-photo]");
+  if (dlp) dlp.addEventListener("click", function () { downloadTag(dlp.dataset.downloadTagPhoto, true); });
 
   const del = q("[data-delete-tree]");
   if (del) del.addEventListener("click", function () {
@@ -1127,7 +1170,7 @@ function bindRegisterEvents() {
   if (holder && registerState.open) {
     const t = getRegister().find(function (x) { return x.id === registerState.open; });
     if (t) {
-      const cv = buildTagCanvas(t);
+      const cv = buildTagCanvas(t, false);
       if (cv) {
         cv.style.maxWidth = "260px";
         cv.style.width = "100%";
@@ -1187,6 +1230,7 @@ function saveScanToRegister(number, name) {
     o2Kg: o2,
     date: new Date().toISOString().slice(0, 10),
     thumb: null,
+    tagPhoto: null,
   };
 
   const first = SCAN_SLOTS.map(function (sl) { return scanState.photos[sl.key]; }).filter(Boolean)[0];
@@ -1194,7 +1238,7 @@ function saveScanToRegister(number, name) {
     const list = getRegister();
     list.push(record);
     if (!saveRegister(list)) {
-      // Storage full — keep the record but drop the photo to make room.
+      // Storage full — keep the record but drop the big photo to make room.
       record.thumb = null;
       if (!saveRegister(list)) {
         alert("This device's storage is full. Download the inventory PDF, then remove some trees.");
@@ -1205,8 +1249,13 @@ function saveScanToRegister(number, name) {
     goToTab("register");
   };
 
-  if (first && first.data) makeThumb(first.data, function (th) { record.thumb = th; finish(); });
-  else finish();
+  if (first && first.data) {
+    makeThumb(first.data, function (th, tagPhoto) {
+      record.thumb = th;
+      record.tagPhoto = tagPhoto;
+      finish();
+    });
+  } else finish();
 }
 
 /* ---- Inventory PDF ---- */
@@ -1304,6 +1353,16 @@ function bindAppShellEvents() {
 
 function renderAppContent() {
   const el = document.getElementById("app-content");
+  // A scanned tree tag takes over the page completely — read-only, no tabs.
+  const nav = document.querySelector(".app-subnav");
+  if (state.passport) {
+    if (nav) nav.style.display = "none";
+    el.innerHTML = passportHTML(state.passport);
+    bindRegisterEvents();
+    if (window.scrollTo) window.scrollTo({ top: 0, behavior: "auto" });
+    return;
+  }
+  if (nav) nav.style.display = "";
   if (state.tab === "calc") { el.innerHTML = calcHTML(); bindCalcEvents(); updateCalcResults(); }
   else if (state.tab === "track") { el.innerHTML = trackHTML(); bindTrackEvents(); }
   else if (state.tab === "apply") { el.innerHTML = applyHTML(); }

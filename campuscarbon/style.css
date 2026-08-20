@@ -517,3 +517,68 @@ img { max-width: 100%; display: block; }
 @media (max-width: 420px) {
   .reg-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 }
+
+
+/* ---- Tree tag passport: the read-only page a scanned QR tag opens ---- */
+.passport {
+  max-width: 460px;
+  margin: 0 auto;
+  padding: 26px 18px 40px;
+}
+.passport-head { text-align: center; margin-bottom: 20px; }
+.passport-num {
+  display: inline-block;
+  font-size: 12px;
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  margin-bottom: 12px;
+}
+.passport-head h1 { margin: 0; font-size: 26px; line-height: 1.2; }
+.passport-head p { margin: 8px 0 0; font-size: 14px; color: var(--ink-soft); }
+
+.passport-photo { position: relative; margin-bottom: 18px; }
+.passport-photo img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 16px;
+  display: block;
+  background: #eef3f0;
+}
+.passport-photo-note {
+  position: absolute;
+  left: 10px; bottom: 10px;
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 9px;
+  border-radius: 999px;
+}
+
+.passport-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 6px 16px;
+}
+.passport-note {
+  font-size: 12px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+  margin: 16px 4px 0;
+}
+.passport-foot {
+  margin-top: 26px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.passport-foot span { font-size: 12px; color: var(--ink-soft); }
